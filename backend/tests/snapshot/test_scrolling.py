@@ -117,6 +117,14 @@ def test_detached_container_is_recorded_without_stopping_other_frames(
     )
     assert detached.stop_reason == "detached"
     assert detached.truncated is False
+    detached_frame = next(
+        frame
+        for frame in observation.frames
+        if detached in frame.scroll_results
+    )
+    assert detached_frame.status == "partial"
+    assert detached_frame.truncated is True
+    assert detached_frame.stop_reason == "detached"
     assert any(frame.status == "completed" for frame in observation.frames)
 
 
@@ -295,3 +303,69 @@ def test_scrolled_elements_are_deduplicated_and_never_include_sensitive_values(
     assert "fixture-scroll-secret-do-not-return" not in repr(observation)
     assert all("value" not in element.attributes for element in elements)
     assert "被错误点击" not in {element.accessible_name for element in elements}
+
+
+def test_scrolling_stops_immediately_when_global_element_budget_is_exhausted(
+    primary_url: str,
+) -> None:
+    observation = PlaywrightBrowserSource(headless=True).collect(
+        f"{primary_url}&scrollFixture=budget",
+        SnapshotLimits(
+            max_elements=3,
+            max_scroll_rounds_per_container=10,
+        ),
+    )
+    main_frame = observation.frames[0]
+    budget = next(
+        result
+        for result in main_frame.scroll_results
+        if result.label == "budget-list"
+    )
+
+    assert len(all_elements(observation)) == 3
+    assert 1 <= budget.rounds < 10
+    assert budget.stop_reason == "max_elements"
+    assert budget.truncated is True
+    assert main_frame.status == "partial"
+    assert main_frame.truncated is True
+    assert main_frame.stop_reason == "max_elements"
+    assert all(
+        frame.elements == []
+        and frame.scroll_results == []
+        and frame.status == "partial"
+        and frame.truncated is True
+        and frame.stop_reason == "max_elements"
+        for frame in observation.frames[1:]
+    )
+
+
+def test_distinct_same_name_nodes_are_both_kept_after_scrolling(
+    primary_url: str,
+) -> None:
+    observation = PlaywrightBrowserSource(headless=True).collect(
+        f"{primary_url}&scrollFixture=identity",
+        SnapshotLimits(max_scroll_rounds_per_container=1),
+    )
+    matching = [
+        element
+        for element in observation.frames[0].elements
+        if element.accessible_name == "同名操作"
+    ]
+
+    assert len(matching) == 2
+    assert "snapshot-node" not in repr(observation)
+
+
+def test_delayed_element_between_containers_is_emitted_not_swallowed(
+    primary_url: str,
+) -> None:
+    observation = PlaywrightBrowserSource(headless=True).collect(
+        f"{primary_url}&scrollFixture=delayed",
+        SnapshotLimits(max_scroll_rounds_per_container=2),
+    )
+    names = {
+        element.accessible_name
+        for element in observation.frames[0].elements
+    }
+
+    assert "延迟跨容器末项" in names

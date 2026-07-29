@@ -22,6 +22,17 @@ _OBSERVATION_ATTRIBUTE = "data-snapshot-observation"
 _OBSERVATION_SELECTOR = "snapshot_observation"
 _OBSERVATION_SELECTOR_ENGINE = """
 (() => {
+const observationNodeIds = new WeakMap();
+let nextObservationNodeId = 0;
+const observationNodeIdFor = (element) => {
+  let nodeId = observationNodeIds.get(element);
+  if (!nodeId) {
+    nextObservationNodeId += 1;
+    nodeId = `observation-node-${nextObservationNodeId}`;
+    observationNodeIds.set(element, nodeId);
+  }
+  return nodeId;
+};
 const collect = (root, { maxElements, maxTextChars }) => {
   const clip = (value) => {
     if (typeof value !== "string") return null;
@@ -134,6 +145,7 @@ const collect = (root, { maxElements, maxTextChars }) => {
     if (attributes.id) locatorHints.push({ strategy: "id", value: attributes.id });
 
     observations.push({
+      nodeId: observationNodeIdFor(element),
       tag,
       role,
       accessibleName,
@@ -216,6 +228,7 @@ class RawScrollResult:
         "stable",
         "end_reached",
         "round_limit",
+        "max_elements",
         "deadline",
         "detached",
         "error",
@@ -298,14 +311,23 @@ class PlaywrightBrowserSource:
             deadline_reached = False
             for traversal_index, frame in enumerate(ordered_frames):
                 remaining_elements = max(limits.max_elements - observed_elements, 0)
-                frame_observation = _observe_frame(
-                    frame=frame,
-                    frame_id=frame_ids[id(frame)],
-                    frame_ids=frame_ids,
-                    traversal_index=traversal_index,
-                    remaining_elements=remaining_elements,
-                    limits=limits,
-                    deadline=deadline,
+                frame_observation = (
+                    _element_budget_exhausted_frame(
+                        frame=frame,
+                        frame_id=frame_ids[id(frame)],
+                        frame_ids=frame_ids,
+                        traversal_index=traversal_index,
+                    )
+                    if remaining_elements == 0
+                    else _observe_frame(
+                        frame=frame,
+                        frame_id=frame_ids[id(frame)],
+                        frame_ids=frame_ids,
+                        traversal_index=traversal_index,
+                        remaining_elements=remaining_elements,
+                        limits=limits,
+                        deadline=deadline,
+                    )
                 )
                 frames.append(frame_observation)
                 observed_elements += len(frame_observation.elements)
@@ -352,6 +374,7 @@ class _RawLocatorHintPayload(TypedDict):
 
 
 class _RawElementPayload(TypedDict):
+    nodeId: str
     tag: str
     role: str | None
     accessibleName: str | None
@@ -594,6 +617,14 @@ def _observe_frame(
         ),
         None,
     )
+    scroll_detached = next(
+        (
+            result
+            for result in scroll_results
+            if result.stop_reason == "detached"
+        ),
+        None,
+    )
     scroll_errors = (
         [
             _raw_error(
@@ -612,10 +643,23 @@ def _observe_frame(
                 )
             ]
             if scroll_error is not None
-            else []
+            else (
+                [
+                    _raw_error(
+                        scope=f"frame:{frame_id}",
+                        error_code="scroll_container_detached",
+                        message="A scroll container detached during observation.",
+                    )
+                ]
+                if scroll_detached is not None
+                else []
+            )
         )
     )
-    scroll_truncated = any(result.truncated for result in scroll_results)
+    scroll_truncated = any(
+        result.truncated or result.stop_reason == "detached"
+        for result in scroll_results
+    )
     truncated = element_truncated or text_truncated or scroll_truncated
     stop_reason = (
         "max_elements"
@@ -627,9 +671,37 @@ def _observe_frame(
                 (
                     result.stop_reason
                     for result in scroll_results
-                    if result.truncated or result.stop_reason == "error"
+                    if result.stop_reason == "deadline"
                 ),
-                None,
+                next(
+                    (
+                        result.stop_reason
+                        for result in scroll_results
+                        if result.stop_reason == "max_elements"
+                    ),
+                    next(
+                        (
+                            result.stop_reason
+                            for result in scroll_results
+                            if result.stop_reason == "detached"
+                        ),
+                        next(
+                            (
+                                result.stop_reason
+                                for result in scroll_results
+                                if result.stop_reason == "error"
+                            ),
+                            next(
+                                (
+                                    result.stop_reason
+                                    for result in scroll_results
+                                    if result.truncated
+                                ),
+                                None,
+                            ),
+                        ),
+                    ),
+                ),
             )
         )
     )
@@ -647,6 +719,31 @@ def _observe_frame(
         errors=scroll_errors,
         truncated=truncated,
         stop_reason=stop_reason,
+    )
+
+
+def _element_budget_exhausted_frame(
+    *,
+    frame: Frame,
+    frame_id: str,
+    frame_ids: dict[int, str],
+    traversal_index: int,
+) -> RawFrameObservation:
+    parent = frame.parent_frame
+    return RawFrameObservation(
+        frame_id=frame_id,
+        parent_frame_id=frame_ids.get(id(parent)) if parent is not None else None,
+        traversal_index=traversal_index,
+        depth=_frame_depth(frame),
+        name="main" if parent is None else (frame.name or frame_id),
+        url=frame.url,
+        status="partial",
+        text_summary="",
+        elements=[],
+        scroll_results=[],
+        errors=[],
+        truncated=True,
+        stop_reason="max_elements",
     )
 
 

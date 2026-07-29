@@ -28,6 +28,17 @@ _SCROLL_SELECTOR = "snapshot_scroll"
 _SCROLL_SELECTOR_ENGINE = """
 (() => {
 const containers = new Map();
+const scopedNodeIds = new WeakMap();
+let nextScopedNodeId = 0;
+const scopedNodeIdFor = (element) => {
+  let nodeId = scopedNodeIds.get(element);
+  if (!nodeId) {
+    nextScopedNodeId += 1;
+    nodeId = `scoped-node-${nextScopedNodeId}`;
+    scopedNodeIds.set(element, nodeId);
+  }
+  return nodeId;
+};
 const documentFor = (root) =>
   root.nodeType === Node.DOCUMENT_NODE ? root : root.ownerDocument;
 const carrierFor = (root, payload) => {
@@ -35,11 +46,33 @@ const carrierFor = (root, payload) => {
   carrier.setAttribute("data-snapshot-scroll", JSON.stringify(payload));
   return carrier;
 };
-const metricsFor = (element) => ({
+const descendantNodeIdsFor = (element, maxElements) => {
+  const candidates = element.querySelectorAll(
+    "a[href],button,input:not([type='hidden']),select,textarea,summary,[role],[tabindex]"
+  );
+  const nodeIds = [];
+  for (const candidate of candidates) {
+    const bounds = candidate.getBoundingClientRect();
+    const style = window.getComputedStyle(candidate);
+    if (
+      bounds.width <= 0
+      || bounds.height <= 0
+      || style.display === "none"
+      || style.visibility === "hidden"
+    ) {
+      continue;
+    }
+    nodeIds.push(scopedNodeIdFor(candidate));
+    if (nodeIds.length >= maxElements) break;
+  }
+  return nodeIds;
+};
+const metricsFor = (element, maxElements = 5000) => ({
   connected: element.isConnected,
   scrollTop: element.scrollTop,
   clientHeight: element.clientHeight,
   scrollHeight: element.scrollHeight,
+  descendantNodeIds: descendantNodeIdsFor(element, maxElements),
 });
 const visibleScrollable = (element) => {
   const bounds = element.getBoundingClientRect();
@@ -66,7 +99,7 @@ const discover = (root, request) => {
       containerId,
       label: index === 0 ? "document" : (element.id || `container-${index}`),
       discoveryIndex: index,
-      ...metricsFor(element),
+      ...metricsFor(element, request.maxElements),
     };
   });
 };
@@ -83,7 +116,7 @@ const act = (request) => {
   } else if (request.operation === "restore") {
     element.scrollTop = request.scrollTop;
   }
-  return metricsFor(element);
+  return metricsFor(element, request.maxElements);
 };
 const query = (root, selector) => {
   const request = JSON.parse(selector);
@@ -133,6 +166,19 @@ class _MetricsPayload(TypedDict, total=False):
     scrollTop: float
     clientHeight: float
     scrollHeight: float
+    descendantNodeIds: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class _CollectedElement:
+    node_id: str
+    observation: RawElementObservation
+
+
+@dataclass(frozen=True, slots=True)
+class _ElementBatch:
+    elements: tuple[_CollectedElement, ...]
+    truncated: bool
 
 
 def discover_scroll_containers(frame: Frame, limit: int) -> list[ScrollContainer]:
@@ -175,8 +221,9 @@ def scroll_container(
         container=container,
         max_rounds=max_rounds,
         deadline=deadline,
-        known_signatures=set(),
-        known_stable_keys=set(),
+        known_node_ids=set(),
+        remaining_elements=5_000,
+        emit_baseline_new=False,
         max_elements=5_000,
         max_text_chars=500,
     )
@@ -191,20 +238,29 @@ def collect_with_scrolling(
     """Collect initial and newly revealed interactive elements."""
     _raise_deadline(deadline)
     frame.page.set_default_timeout(_remaining_milliseconds(deadline))
-    initial = _collect_elements(
+    initial_batch = _collect_elements(
         frame,
         max_elements=limits.max_elements,
         max_text_chars=limits.max_text_chars,
         deadline=deadline,
     )
     elements = [
-        replace(element, traversal_index=index)
-        for index, element in enumerate(initial)
+        replace(item.observation, traversal_index=index)
+        for index, item in enumerate(initial_batch.elements)
     ]
     frame_id = f"frame-{_frame_traversal_index(frame)}"
-    known_signatures = {_element_signature(frame_id, element) for element in elements}
-    known_stable_keys = {_element_stable_key(frame_id, element) for element in elements}
+    known_node_ids = {item.node_id for item in initial_batch.elements}
     scroll_results: list[RawScrollResult] = []
+    remaining_elements = limits.max_elements - len(elements)
+    if initial_batch.truncated or remaining_elements == 0:
+        return elements, [
+            _empty_result(
+                container_id=f"{frame_id}-scroll-0",
+                label="document",
+                stop_reason="max_elements",
+                truncated=True,
+            )
+        ]
 
     try:
         containers = discover_scroll_containers(
@@ -236,17 +292,17 @@ def collect_with_scrolling(
             container=container,
             max_rounds=limits.max_scroll_rounds_per_container,
             deadline=deadline,
-            known_signatures=known_signatures,
-            known_stable_keys=known_stable_keys,
+            known_node_ids=known_node_ids,
+            remaining_elements=remaining_elements,
+            emit_baseline_new=True,
             max_elements=limits.max_elements,
             max_text_chars=limits.max_text_chars,
         )
         for element in discovered:
-            if len(elements) >= limits.max_elements:
-                break
             elements.append(replace(element, traversal_index=len(elements)))
+        remaining_elements -= len(discovered)
         scroll_results.append(result)
-        if result.stop_reason == "deadline":
+        if result.stop_reason in {"deadline", "max_elements"}:
             break
     return elements, scroll_results
 
@@ -257,8 +313,9 @@ def _scroll_container_with_observations(
     container: ScrollContainer,
     max_rounds: int,
     deadline: float,
-    known_signatures: set[tuple[object, ...]],
-    known_stable_keys: set[tuple[object, ...]],
+    known_node_ids: set[str],
+    remaining_elements: int,
+    emit_baseline_new: bool,
     max_elements: int,
     max_text_chars: int,
 ) -> tuple[RawScrollResult, list[RawElementObservation]]:
@@ -270,31 +327,64 @@ def _scroll_container_with_observations(
         "stable",
         "end_reached",
         "round_limit",
+        "max_elements",
         "deadline",
         "detached",
         "error",
     ] = "round_limit"
     truncated = max_rounds == 0
     restored = False
-    frame_id = f"frame-{_frame_traversal_index(frame)}"
 
     try:
         frame.page.wait_for_timeout(min(100, _remaining_milliseconds(deadline)))
-        baseline_elements = _collect_elements(
+        baseline_metrics = cast(
+            _MetricsPayload,
+            _carrier_request(
+                frame,
+                {
+                    "operation": "inspect",
+                    "containerId": container.container_id,
+                    "maxElements": max_elements,
+                },
+                deadline=deadline,
+            ),
+        )
+        if not baseline_metrics.get("connected", False):
+            stop_reason = "detached"
+            return (
+                _result(
+                    container=container,
+                    rounds=rounds,
+                    discovered=discovered,
+                    restored=False,
+                    truncated=truncated,
+                    stop_reason=stop_reason,
+                ),
+                discovered,
+            )
+        scoped_node_ids = set(baseline_metrics.get("descendantNodeIds", []))
+        baseline_batch = _collect_elements(
             frame,
             max_elements=max_elements,
             max_text_chars=max_text_chars,
             deadline=deadline,
         )
-        known_signatures.update(
-            _element_signature(frame_id, element)
-            for element in baseline_elements
-        )
-        known_stable_keys.update(
-            _element_stable_key(frame_id, element)
-            for element in baseline_elements
-        )
+        if emit_baseline_new:
+            remaining_elements = _append_new_elements(
+                baseline_batch,
+                known_node_ids=known_node_ids,
+                discovered=discovered,
+                remaining_elements=remaining_elements,
+            )
+        else:
+            known_node_ids.update(item.node_id for item in baseline_batch.elements)
+        if remaining_elements == 0:
+            stop_reason = "max_elements"
+            truncated = True
+
         for _ in range(max_rounds):
+            if stop_reason == "max_elements":
+                break
             _raise_deadline(deadline)
             metrics = cast(
                 _MetricsPayload,
@@ -304,6 +394,7 @@ def _scroll_container_with_observations(
                         "operation": "scroll",
                         "containerId": container.container_id,
                         "delta": max(container.client_height * 0.8, 1),
+                        "maxElements": max_elements,
                     },
                     deadline=deadline,
                 ),
@@ -313,12 +404,6 @@ def _scroll_container_with_observations(
                 break
             rounds += 1
             frame.page.wait_for_timeout(min(100, _remaining_milliseconds(deadline)))
-            current_elements = _collect_elements(
-                frame,
-                max_elements=max_elements,
-                max_text_chars=max_text_chars,
-                deadline=deadline,
-            )
             current_metrics = cast(
                 _MetricsPayload,
                 _carrier_request(
@@ -326,6 +411,7 @@ def _scroll_container_with_observations(
                     {
                         "operation": "inspect",
                         "containerId": container.container_id,
+                        "maxElements": max_elements,
                     },
                     deadline=deadline,
                 ),
@@ -334,24 +420,37 @@ def _scroll_container_with_observations(
                 stop_reason = "detached"
                 break
 
-            new_count = 0
-            for element in current_elements:
-                signature = _element_signature(frame_id, element)
-                stable_key = _element_stable_key(frame_id, element)
-                if signature in known_signatures or stable_key in known_stable_keys:
-                    known_signatures.add(signature)
-                    continue
-                known_signatures.add(signature)
-                known_stable_keys.add(stable_key)
-                discovered.append(element)
-                new_count += 1
+            current_batch = _collect_elements(
+                frame,
+                max_elements=max_elements,
+                max_text_chars=max_text_chars,
+                deadline=deadline,
+            )
+            remaining_elements = _append_new_elements(
+                current_batch,
+                known_node_ids=known_node_ids,
+                discovered=discovered,
+                remaining_elements=remaining_elements,
+            )
+            current_scoped_node_ids = set(
+                current_metrics.get("descendantNodeIds", [])
+            )
+            new_scoped_node_count = len(current_scoped_node_ids - scoped_node_ids)
+            scoped_node_ids.update(current_scoped_node_ids)
 
             current_height = current_metrics.get("scrollHeight", previous_height)
-            if new_count == 0 and abs(current_height - previous_height) <= 1:
+            if (
+                new_scoped_node_count == 0
+                and abs(current_height - previous_height) <= 1
+            ):
                 stable_rounds += 1
             else:
                 stable_rounds = 0
             previous_height = current_height
+            if remaining_elements == 0:
+                stop_reason = "max_elements"
+                truncated = True
+                break
             if stable_rounds >= 2:
                 stop_reason = "stable"
                 break
@@ -389,11 +488,10 @@ def _scroll_container_with_observations(
             restored = False
 
     return (
-        RawScrollResult(
-            container_id=container.container_id,
-            label=container.label,
+        _result(
+            container=container,
             rounds=rounds,
-            discovered_elements=len(discovered),
+            discovered=discovered,
             restored=restored,
             truncated=truncated,
             stop_reason=stop_reason,
@@ -408,7 +506,7 @@ def _collect_elements(
     max_elements: int,
     max_text_chars: int,
     deadline: float,
-) -> list[RawElementObservation]:
+) -> _ElementBatch:
     selector_argument = json.dumps(
         {
             "maxElements": max_elements,
@@ -425,10 +523,35 @@ def _collect_elements(
     if raw_payload is None:
         raise PlaywrightError("Utility-world observation carrier has no payload.")
     frame_payload = cast(_RawFramePayload, json.loads(raw_payload))
-    return [
-        _element_from_payload(payload, index)
-        for index, payload in enumerate(frame_payload["elements"]["observations"])
-    ]
+    elements_payload = frame_payload["elements"]
+    return _ElementBatch(
+        elements=tuple(
+            _CollectedElement(
+                node_id=payload["nodeId"],
+                observation=_element_from_payload(payload, index),
+            )
+            for index, payload in enumerate(elements_payload["observations"])
+        ),
+        truncated=elements_payload["truncated"],
+    )
+
+
+def _append_new_elements(
+    batch: _ElementBatch,
+    *,
+    known_node_ids: set[str],
+    discovered: list[RawElementObservation],
+    remaining_elements: int,
+) -> int:
+    for item in batch.elements:
+        if item.node_id in known_node_ids:
+            continue
+        if remaining_elements == 0:
+            break
+        known_node_ids.add(item.node_id)
+        discovered.append(item.observation)
+        remaining_elements -= 1
+    return remaining_elements
 
 
 def _carrier_request(
@@ -470,34 +593,31 @@ def _frame_traversal_index(frame: Frame) -> int:
     raise PlaywrightError("Frame detached before scroll traversal.")
 
 
-def _element_signature(
-    frame_id: str,
-    element: RawElementObservation,
-) -> tuple[object, ...]:
-    bounds = element.bounds
-    rounded_bounds = (
-        None
-        if bounds is None
-        else (
-            round(bounds.x),
-            round(bounds.y),
-            round(bounds.width),
-            round(bounds.height),
-        )
-    )
-    return (*_element_stable_key(frame_id, element), rounded_bounds)
-
-
-def _element_stable_key(
-    frame_id: str,
-    element: RawElementObservation,
-) -> tuple[object, ...]:
-    return (
-        frame_id,
-        element.tag,
-        element.role,
-        element.accessible_name,
-        tuple(sorted(element.attributes.items())),
+def _result(
+    *,
+    container: ScrollContainer,
+    rounds: int,
+    discovered: list[RawElementObservation],
+    restored: bool,
+    truncated: bool,
+    stop_reason: Literal[
+        "stable",
+        "end_reached",
+        "round_limit",
+        "max_elements",
+        "deadline",
+        "detached",
+        "error",
+    ],
+) -> RawScrollResult:
+    return RawScrollResult(
+        container_id=container.container_id,
+        label=container.label,
+        rounds=rounds,
+        discovered_elements=len(discovered),
+        restored=restored,
+        truncated=truncated,
+        stop_reason=stop_reason,
     )
 
 
@@ -510,7 +630,7 @@ def _empty_result(
     *,
     container_id: str,
     label: str,
-    stop_reason: Literal["deadline", "error"],
+    stop_reason: Literal["max_elements", "deadline", "error"],
     truncated: bool,
 ) -> RawScrollResult:
     return RawScrollResult(

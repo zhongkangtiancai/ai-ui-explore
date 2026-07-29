@@ -64,7 +64,15 @@ class ScrollResult(BaseModel):
     discovered_elements: int = Field(ge=0)
     restored: bool
     truncated: bool
-    stop_reason: Literal["stable", "end_reached", "round_limit", "deadline", "detached", "error"]
+    stop_reason: Literal[
+        "stable",
+        "end_reached",
+        "round_limit",
+        "max_elements",
+        "deadline",
+        "detached",
+        "error",
+    ]
 
 
 class SnapshotError(BaseModel):

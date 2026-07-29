@@ -380,6 +380,7 @@
             "stable",
             "end_reached",
             "round_limit",
+            "max_elements",
             "deadline",
             "detached",
             "error"
@@ -649,4 +650,3 @@
   "title": "SnapshotDocument",
   "type": "object"
 }
-

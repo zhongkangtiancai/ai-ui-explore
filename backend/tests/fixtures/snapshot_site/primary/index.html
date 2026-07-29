@@ -66,6 +66,47 @@
         <button id="load-more-control">加载更多（禁止点击）</button>
       </section>
 
+      <section id="budget-fixture" hidden>
+        <h2>滚动预算夹具</h2>
+        <button>预算初始项</button>
+        <div
+          id="budget-list"
+          style="height: 80px; overflow-y: auto; border: 1px solid #ccc;"
+        >
+          <div id="budget-items"></div>
+          <div style="height: 160px;" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section id="identity-fixture" hidden>
+        <h2>节点身份夹具</h2>
+        <div
+          id="identity-list"
+          style="height: 80px; overflow-y: auto; border: 1px solid #ccc;"
+        >
+          <button>同名操作</button>
+          <div id="identity-items"></div>
+          <div style="height: 160px;" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section id="delayed-fixture" hidden>
+        <h2>跨容器延迟夹具</h2>
+        <div
+          id="delayed-source-list"
+          style="height: 80px; overflow-y: auto; border: 1px solid #ccc;"
+        >
+          <div style="height: 140px;" aria-hidden="true"></div>
+        </div>
+        <div
+          id="delayed-target-list"
+          style="height: 80px; overflow-y: auto; border: 1px solid #ccc;"
+        >
+          <button>延迟目标初始项</button>
+          <div style="height: 200px;" aria-hidden="true"></div>
+        </div>
+      </section>
+
       <iframe name="same-origin" src="/same-frame.html" title="同源内容"></iframe>
       <iframe id="cross-frame" name="cross-origin" title="跨源内容"></iframe>
       <div id="dynamic-host"></div>
@@ -120,6 +161,47 @@
       document.querySelector("#load-more-control").addEventListener("click", (event) => {
         event.currentTarget.textContent = "被错误点击";
       });
+
+      let budgetRound = 0;
+      document.querySelector("#budget-list").addEventListener("scroll", () => {
+        budgetRound += 1;
+        const button = document.createElement("button");
+        button.textContent = `预算滚动第 ${budgetRound} 项`;
+        document.querySelector("#budget-items").append(button);
+        const spacer = document.createElement("div");
+        spacer.style.height = "100px";
+        document.querySelector("#budget-items").append(spacer);
+      });
+
+      let identityLoaded = false;
+      document.querySelector("#identity-list").addEventListener("scroll", () => {
+        if (identityLoaded) return;
+        identityLoaded = true;
+        const button = document.createElement("button");
+        button.textContent = "同名操作";
+        document.querySelector("#identity-items").append(button);
+      });
+
+      let delayedSourceScrolls = 0;
+      document.querySelector("#delayed-source-list").addEventListener("scroll", () => {
+        delayedSourceScrolls += 1;
+        if (delayedSourceScrolls !== 2) return;
+        window.setTimeout(() => {
+          const button = document.createElement("button");
+          button.textContent = "延迟跨容器末项";
+          document.querySelector("#delayed-source-list").append(button);
+        }, 20);
+      });
+
+      const scrollFixture = query.get("scrollFixture");
+      if (scrollFixture) {
+        for (const child of document.querySelectorAll("main > :not(iframe):not(#dynamic-host)")) {
+          child.style.display = "none";
+        }
+        const fixture = document.querySelector(`#${scrollFixture}-fixture`);
+        fixture.hidden = false;
+        fixture.style.display = "block";
+      }
 
       Element.prototype.getAttribute = function (name) {
         const normalizedName = String(name).toLowerCase();
