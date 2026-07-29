@@ -27,6 +27,7 @@ frontend/coverage/
 # IDE and OS
 .idea/
 .vscode/
+.worktrees/
 .DS_Store
 Thumbs.db
 
