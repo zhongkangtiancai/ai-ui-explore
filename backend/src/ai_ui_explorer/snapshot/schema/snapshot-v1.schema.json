@@ -1,0 +1,652 @@
+{
+  "$defs": {
+    "Bounds": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "minimum": 0,
+          "title": "Height",
+          "type": "number"
+        },
+        "width": {
+          "minimum": 0,
+          "title": "Width",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "Bounds",
+      "type": "object"
+    },
+    "ElementSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "accessible_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Accessible Name"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Attributes",
+          "type": "object"
+        },
+        "bounds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bounds"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checked"
+        },
+        "element_id": {
+          "title": "Element Id",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "expanded": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expanded"
+        },
+        "frame_id": {
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "locator_hints": {
+          "items": {
+            "$ref": "#/$defs/LocatorHint"
+          },
+          "title": "Locator Hints",
+          "type": "array"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        },
+        "selected": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selected"
+        },
+        "tag": {
+          "title": "Tag",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Text"
+        },
+        "traversal_index": {
+          "minimum": 0,
+          "title": "Traversal Index",
+          "type": "integer"
+        },
+        "visible": {
+          "title": "Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "element_id",
+        "frame_id",
+        "traversal_index",
+        "tag",
+        "role",
+        "accessible_name",
+        "text",
+        "attributes",
+        "visible",
+        "enabled",
+        "checked",
+        "selected",
+        "expanded",
+        "bounds",
+        "locator_hints"
+      ],
+      "title": "ElementSnapshot",
+      "type": "object"
+    },
+    "FrameSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "minimum": 0,
+          "title": "Depth",
+          "type": "integer"
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/ElementSnapshot"
+          },
+          "title": "Elements",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/SnapshotError"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "frame_id": {
+          "title": "Frame Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parent_frame_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parent Frame Id"
+        },
+        "redaction_count": {
+          "minimum": 0,
+          "title": "Redaction Count",
+          "type": "integer"
+        },
+        "scroll_results": {
+          "items": {
+            "$ref": "#/$defs/ScrollResult"
+          },
+          "title": "Scroll Results",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "partial",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stop Reason"
+        },
+        "text_summary": {
+          "title": "Text Summary",
+          "type": "string"
+        },
+        "traversal_index": {
+          "minimum": 0,
+          "title": "Traversal Index",
+          "type": "integer"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "frame_id",
+        "parent_frame_id",
+        "traversal_index",
+        "depth",
+        "name",
+        "url",
+        "status",
+        "text_summary",
+        "elements",
+        "scroll_results",
+        "errors",
+        "truncated",
+        "stop_reason",
+        "redaction_count"
+      ],
+      "title": "FrameSnapshot",
+      "type": "object"
+    },
+    "LocatorHint": {
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "enum": [
+            "role",
+            "label",
+            "testid",
+            "id"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "strategy",
+        "value"
+      ],
+      "title": "LocatorHint",
+      "type": "object"
+    },
+    "PageSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Language"
+        },
+        "main_frame_id": {
+          "title": "Main Frame Id",
+          "type": "string"
+        },
+        "viewport_height": {
+          "minimum": 1,
+          "title": "Viewport Height",
+          "type": "integer"
+        },
+        "viewport_width": {
+          "minimum": 1,
+          "title": "Viewport Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "main_frame_id",
+        "viewport_width",
+        "viewport_height",
+        "language"
+      ],
+      "title": "PageSnapshot",
+      "type": "object"
+    },
+    "ScrollResult": {
+      "additionalProperties": false,
+      "properties": {
+        "container_id": {
+          "title": "Container Id",
+          "type": "string"
+        },
+        "discovered_elements": {
+          "minimum": 0,
+          "title": "Discovered Elements",
+          "type": "integer"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "restored": {
+          "title": "Restored",
+          "type": "boolean"
+        },
+        "rounds": {
+          "minimum": 0,
+          "title": "Rounds",
+          "type": "integer"
+        },
+        "stop_reason": {
+          "enum": [
+            "stable",
+            "end_reached",
+            "round_limit",
+            "deadline",
+            "detached",
+            "error"
+          ],
+          "title": "Stop Reason",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "container_id",
+        "label",
+        "rounds",
+        "discovered_elements",
+        "restored",
+        "truncated",
+        "stop_reason"
+      ],
+      "title": "ScrollResult",
+      "type": "object"
+    },
+    "SnapshotError": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "title": "Error Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "recoverable": {
+          "title": "Recoverable",
+          "type": "boolean"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "error_code",
+        "message",
+        "recoverable",
+        "occurred_at"
+      ],
+      "title": "SnapshotError",
+      "type": "object"
+    },
+    "SnapshotLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_elements": {
+          "default": 5000,
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Max Elements",
+          "type": "integer"
+        },
+        "max_frames": {
+          "default": 50,
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Max Frames",
+          "type": "integer"
+        },
+        "max_json_bytes": {
+          "default": 10485760,
+          "maximum": 104857600,
+          "minimum": 65536,
+          "title": "Max Json Bytes",
+          "type": "integer"
+        },
+        "max_scroll_containers_per_frame": {
+          "default": 20,
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Max Scroll Containers Per Frame",
+          "type": "integer"
+        },
+        "max_scroll_rounds_per_container": {
+          "default": 30,
+          "maximum": 500,
+          "minimum": 0,
+          "title": "Max Scroll Rounds Per Container",
+          "type": "integer"
+        },
+        "max_text_chars": {
+          "default": 500,
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Max Text Chars",
+          "type": "integer"
+        },
+        "total_timeout_ms": {
+          "default": 60000,
+          "maximum": 600000,
+          "minimum": 1000,
+          "title": "Total Timeout Ms",
+          "type": "integer"
+        }
+      },
+      "title": "SnapshotLimits",
+      "type": "object"
+    },
+    "SnapshotStatistics": {
+      "additionalProperties": false,
+      "properties": {
+        "completed_frame_count": {
+          "minimum": 0,
+          "title": "Completed Frame Count",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "element_count": {
+          "minimum": 0,
+          "title": "Element Count",
+          "type": "integer"
+        },
+        "failed_frame_count": {
+          "minimum": 0,
+          "title": "Failed Frame Count",
+          "type": "integer"
+        },
+        "frame_count": {
+          "minimum": 0,
+          "title": "Frame Count",
+          "type": "integer"
+        },
+        "redaction_count": {
+          "minimum": 0,
+          "title": "Redaction Count",
+          "type": "integer"
+        },
+        "scroll_container_count": {
+          "minimum": 0,
+          "title": "Scroll Container Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "frame_count",
+        "completed_frame_count",
+        "failed_frame_count",
+        "element_count",
+        "scroll_container_count",
+        "redaction_count",
+        "duration_ms"
+      ],
+      "title": "SnapshotStatistics",
+      "type": "object"
+    },
+    "SourceSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "final_url": {
+          "title": "Final Url",
+          "type": "string"
+        },
+        "requested_url": {
+          "title": "Requested Url",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requested_url",
+        "final_url",
+        "title"
+      ],
+      "title": "SourceSnapshot",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "completed_at": {
+      "format": "date-time",
+      "title": "Completed At",
+      "type": "string"
+    },
+    "errors": {
+      "items": {
+        "$ref": "#/$defs/SnapshotError"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "frames": {
+      "items": {
+        "$ref": "#/$defs/FrameSnapshot"
+      },
+      "title": "Frames",
+      "type": "array"
+    },
+    "limits": {
+      "$ref": "#/$defs/SnapshotLimits"
+    },
+    "page": {
+      "$ref": "#/$defs/PageSnapshot"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "snapshot_id": {
+      "format": "uuid",
+      "title": "Snapshot Id",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceSnapshot"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "statistics": {
+      "$ref": "#/$defs/SnapshotStatistics"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "truncated": {
+      "title": "Truncated",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "snapshot_id",
+    "status",
+    "started_at",
+    "completed_at",
+    "source",
+    "limits",
+    "statistics",
+    "page",
+    "frames",
+    "errors",
+    "truncated"
+  ],
+  "title": "SnapshotDocument",
+  "type": "object"
+}
+

@@ -1,0 +1,71 @@
+"""Tests for deterministic snapshot compaction and persistence."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from ai_ui_explorer.snapshot.models import SnapshotDocument
+from ai_ui_explorer.snapshot.writer import (
+    SnapshotTooLargeError,
+    compact_snapshot,
+    write_snapshot,
+)
+
+from .factories import make_oversized_snapshot, make_snapshot
+
+
+def test_writer_creates_schema_valid_json_atomically(tmp_path: Path) -> None:
+    """A completed snapshot is persisted as the single final artifact."""
+    output = write_snapshot(make_snapshot(), tmp_path / "result")
+    payload = json.loads(output.read_text(encoding="utf-8"))
+
+    assert output == tmp_path / "result" / "snapshot.json"
+    assert payload["schema_version"] == "1.0"
+    assert SnapshotDocument.model_validate(payload).snapshot_id == make_snapshot().snapshot_id
+    assert not list(output.parent.glob("*.tmp"))
+
+
+def test_compaction_marks_snapshot_partial_and_keeps_within_limit() -> None:
+    """Oversized data is predictably reduced into a bounded partial snapshot."""
+    snapshot = _with_output_limit(make_oversized_snapshot(max_json_bytes=65_536), 65_536)
+
+    compacted = compact_snapshot(snapshot)
+    encoded = compacted.model_dump_json().encode("utf-8")
+
+    assert len(encoded) <= 65_536
+    assert compacted.status == "partial"
+    assert compacted.truncated is True
+    assert [error.error_code for error in compacted.errors] == ["output_size_limit"]
+
+
+def test_compaction_removes_highest_element_indexes_first() -> None:
+    """A compaction must retain a prefix of the traversal order, never a suffix."""
+    compacted = compact_snapshot(
+        _with_output_limit(make_oversized_snapshot(max_json_bytes=65_536), 65_536)
+    )
+    indexes = [element.traversal_index for frame in compacted.frames for element in frame.elements]
+
+    assert indexes == list(range(len(indexes)))
+    assert compacted.statistics.element_count == len(indexes)
+
+
+def test_compaction_fails_when_required_contract_and_error_cannot_fit() -> None:
+    """Fields outside the permitted compaction scope produce an explicit failure."""
+    snapshot = make_snapshot(
+        limits={"max_json_bytes": 65_536},
+        source={
+            "requested_url": "https://example.test/",
+            "final_url": "https://example.test/",
+            "title": "x" * 70_000,
+        }
+    )
+
+    with pytest.raises(SnapshotTooLargeError):
+        compact_snapshot(snapshot)
+
+
+def _with_output_limit(snapshot: SnapshotDocument, max_json_bytes: int) -> SnapshotDocument:
+    return snapshot.model_copy(
+        update={"limits": snapshot.limits.model_copy(update={"max_json_bytes": max_json_bytes})}
+    )
