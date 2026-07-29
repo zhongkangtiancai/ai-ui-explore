@@ -57,7 +57,7 @@ class SnapshotCollector:
         started_at = datetime.now(UTC)
         started_tick = self._monotonic_clock()
         deadline = started_tick + (limits.total_timeout_ms / 1_000)
-        if started_tick >= deadline:
+        if self._monotonic_clock() >= deadline:
             raise CollectionFailedError("Collection deadline was reached before navigation.")
 
         try:
@@ -66,9 +66,6 @@ class SnapshotCollector:
             raise CollectionFailedError("Browser observation source is unavailable.") from exc
         except Exception as exc:
             raise CollectionFailedError("Page navigation or observation failed.") from exc
-
-        if self._monotonic_clock() >= deadline:
-            raise CollectionFailedError("Collection deadline was reached during navigation.")
 
         root = _find_valid_root(raw_page)
         if root is None:

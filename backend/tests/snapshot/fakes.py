@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -10,6 +11,7 @@ from ai_ui_explorer.snapshot.browser import (
     RawErrorObservation,
     RawFrameObservation,
     RawPageObservation,
+    RawScrollResult,
 )
 from ai_ui_explorer.snapshot.models import Bounds, SnapshotLimits
 
@@ -17,8 +19,14 @@ from ai_ui_explorer.snapshot.models import Bounds, SnapshotLimits
 class FakeSource:
     """Return deterministic raw observations without browser automation."""
 
-    def __init__(self, observation: RawPageObservation) -> None:
+    def __init__(
+        self,
+        observation: RawPageObservation,
+        on_collect: Callable[[], None] | None = None,
+    ) -> None:
         self._observation = observation
+        self.on_collect = on_collect
+        self.collect_calls = 0
 
     @classmethod
     def with_one_success_and_one_failure(cls) -> FakeSource:
@@ -81,7 +89,39 @@ class FakeSource:
         )
         return cls(_page(frames=[root, invalid_child]))
 
+    @classmethod
+    def with_deadline_partial(cls) -> FakeSource:
+        deadline_error = RawErrorObservation(
+            scope="frame",
+            error_code="deadline_reached",
+            message="Frame collection reached the global deadline.",
+            recoverable=True,
+            occurred_at=datetime(2026, 7, 29, tzinfo=UTC),
+        )
+        partial = replace(
+            _completed_root(text="Visible page text"),
+            status="partial",
+            scroll_results=[
+                RawScrollResult(
+                    container_id="root-scroll-0",
+                    label="document",
+                    rounds=1,
+                    discovered_elements=1,
+                    restored=True,
+                    truncated=True,
+                    stop_reason="deadline",
+                )
+            ],
+            errors=[deadline_error],
+            truncated=True,
+            stop_reason="deadline",
+        )
+        return cls(_page(frames=[partial], deadline_reached=True))
+
     def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
+        self.collect_calls += 1
+        if self.on_collect is not None:
+            self.on_collect()
         return self._observation
 
 
@@ -89,6 +129,7 @@ def _page(
     *,
     frames: list[RawFrameObservation],
     language: str = "en",
+    deadline_reached: bool = False,
 ) -> RawPageObservation:
     return RawPageObservation(
         final_url="https://example.test/final",
@@ -98,7 +139,7 @@ def _page(
         language=language,
         frames=frames,
         errors=[],
-        deadline_reached=False,
+        deadline_reached=deadline_reached,
     )
 
 

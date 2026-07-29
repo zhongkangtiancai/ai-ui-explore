@@ -43,15 +43,35 @@ def test_collector_tracks_redactions_per_frame_and_globally() -> None:
     assert snapshot.statistics.redaction_count == 2
 
 
-def test_collector_rejects_raw_page_returned_after_global_deadline() -> None:
+def test_collector_rejects_navigation_after_global_deadline() -> None:
     clock_values = iter([0.0, 2.0])
+    source = FakeSource.with_text("Visible page text")
     collector = SnapshotCollector(
-        source=FakeSource.with_text("Visible page text"),
+        source=source,
         monotonic_clock=lambda: next(clock_values),
     )
 
     with pytest.raises(CollectionFailedError, match="deadline"):
         collector.collect("https://example.test", SnapshotLimits(total_timeout_ms=1_000))
+
+    assert source.collect_calls == 0
+
+
+def test_collector_preserves_valid_deadline_partial_returned_by_source() -> None:
+    clock = [0.0]
+    source = FakeSource.with_deadline_partial()
+    source.on_collect = lambda: clock.__setitem__(0, 2.0)
+    collector = SnapshotCollector(source=source, monotonic_clock=lambda: clock[0])
+
+    snapshot = collector.collect(
+        "https://example.test", SnapshotLimits(total_timeout_ms=1_000)
+    )
+
+    assert snapshot.status == "partial"
+    assert snapshot.frames[0].status == "partial"
+    assert snapshot.frames[0].stop_reason == "deadline"
+    assert snapshot.frames[0].scroll_results[0].stop_reason == "deadline"
+    assert snapshot.errors[0].recoverable is True
 
 
 def test_collector_counts_redactions_in_page_fields() -> None:
