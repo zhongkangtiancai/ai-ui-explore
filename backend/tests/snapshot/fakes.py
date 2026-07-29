@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from ai_ui_explorer.snapshot.browser import (
@@ -51,26 +52,59 @@ class FakeSource:
     def with_text(cls, value: str) -> FakeSource:
         return cls(_page(frames=[_completed_root(text=value)]))
 
+    @classmethod
+    def with_page_fields(cls, *, frame_id: str, language: str) -> FakeSource:
+        return cls(
+            _page(
+                frames=[_completed_root(text="Visible page text", frame_id=frame_id)],
+                language=language,
+            )
+        )
+
+    @classmethod
+    def with_invalid_root(cls) -> FakeSource:
+        return cls(
+            _page(
+                frames=[replace(_completed_root(text="Visible page text"), traversal_index=-1)]
+            )
+        )
+
+    @classmethod
+    def with_one_success_and_one_invalid_child(cls) -> FakeSource:
+        root = _completed_root(text="token=root-secret")
+        invalid_child = replace(
+            _completed_root(text="Child content", frame_id="child"),
+            parent_frame_id="root",
+            traversal_index=1,
+            depth=-1,
+            name="child",
+        )
+        return cls(_page(frames=[root, invalid_child]))
+
     def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
         return self._observation
 
 
-def _page(*, frames: list[RawFrameObservation]) -> RawPageObservation:
+def _page(
+    *,
+    frames: list[RawFrameObservation],
+    language: str = "en",
+) -> RawPageObservation:
     return RawPageObservation(
         final_url="https://example.test/final",
         title="Example",
         viewport_width=1280,
         viewport_height=720,
-        language="en",
+        language=language,
         frames=frames,
         errors=[],
         deadline_reached=False,
     )
 
 
-def _completed_root(*, text: str) -> RawFrameObservation:
+def _completed_root(*, text: str, frame_id: str = "root") -> RawFrameObservation:
     return RawFrameObservation(
-        frame_id="root",
+        frame_id=frame_id,
         parent_frame_id=None,
         traversal_index=0,
         depth=0,

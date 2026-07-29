@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from time import monotonic
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
+
 from .browser import (
     BrowserObservationSource,
     BrowserUnavailableError,
@@ -65,6 +67,9 @@ class SnapshotCollector:
         except Exception as exc:
             raise CollectionFailedError("Page navigation or observation failed.") from exc
 
+        if self._monotonic_clock() >= deadline:
+            raise CollectionFailedError("Collection deadline was reached during navigation.")
+
         root = _find_valid_root(raw_page)
         if root is None:
             raise CollectionFailedError("No valid root frame was available for the snapshot.")
@@ -74,7 +79,20 @@ class SnapshotCollector:
         frames: list[FrameSnapshot] = []
         errors = list(page_errors)
         for raw_frame in sorted(raw_page.frames, key=lambda frame: frame.traversal_index):
-            frame, frame_errors = _frame_snapshot(raw_frame, sanitizer)
+            redaction_count_before_frame = sanitizer.count
+            try:
+                frame, frame_errors = _frame_snapshot(raw_frame, sanitizer)
+            except (ValidationError, ValueError) as exc:
+                sanitizer.count = redaction_count_before_frame
+                if raw_frame is root:
+                    raise CollectionFailedError(
+                        "The root frame could not be modeled as a snapshot."
+                    ) from exc
+                frame, frame_errors = _failed_frame_snapshot(
+                    raw_frame,
+                    sanitizer,
+                    redaction_count_before_frame,
+                )
             frames.append(frame)
             errors.extend(frame_errors)
 
@@ -82,36 +100,43 @@ class SnapshotCollector:
         partial = bool(errors) or truncated
         completed_at = datetime.now(UTC)
         duration_ms = max(0, int((self._monotonic_clock() - started_tick) * 1_000))
-        return SnapshotDocument(
-            snapshot_id=self._uuid_factory(),
-            status="partial" if partial else "completed",
-            started_at=started_at,
-            completed_at=completed_at,
-            source=SourceSnapshot(
-                requested_url=sanitizer.url(url),
-                final_url=sanitizer.url(raw_page.final_url),
-                title=sanitizer.text(raw_page.title),
-            ),
-            limits=limits,
-            statistics=SnapshotStatistics(
-                frame_count=len(frames),
-                completed_frame_count=sum(frame.status == "completed" for frame in frames),
-                failed_frame_count=sum(frame.status == "failed" for frame in frames),
-                element_count=sum(len(frame.elements) for frame in frames),
-                scroll_container_count=sum(len(frame.scroll_results) for frame in frames),
-                redaction_count=sanitizer.count,
-                duration_ms=duration_ms,
-            ),
-            page=PageSnapshot(
-                main_frame_id=sanitizer.text(root.frame_id),
-                viewport_width=raw_page.viewport_width,
-                viewport_height=raw_page.viewport_height,
-                language=_optional_text(raw_page.language, sanitizer),
-            ),
-            frames=frames,
-            errors=errors,
-            truncated=truncated,
+        source = SourceSnapshot(
+            requested_url=sanitizer.url(url),
+            final_url=sanitizer.url(raw_page.final_url),
+            title=sanitizer.text(raw_page.title),
         )
+        page = PageSnapshot(
+            main_frame_id=sanitizer.text(root.frame_id),
+            viewport_width=raw_page.viewport_width,
+            viewport_height=raw_page.viewport_height,
+            language=_optional_text(raw_page.language, sanitizer),
+        )
+        try:
+            return SnapshotDocument(
+                snapshot_id=self._uuid_factory(),
+                status="partial" if partial else "completed",
+                started_at=started_at,
+                completed_at=completed_at,
+                source=source,
+                limits=limits,
+                statistics=SnapshotStatistics(
+                    frame_count=len(frames),
+                    completed_frame_count=sum(frame.status == "completed" for frame in frames),
+                    failed_frame_count=sum(frame.status == "failed" for frame in frames),
+                    element_count=sum(len(frame.elements) for frame in frames),
+                    scroll_container_count=sum(len(frame.scroll_results) for frame in frames),
+                    redaction_count=sanitizer.count,
+                    duration_ms=duration_ms,
+                ),
+                page=page,
+                frames=frames,
+                errors=errors,
+                truncated=truncated,
+            )
+        except ValidationError as exc:
+            raise CollectionFailedError(
+                "A valid top-level snapshot could not be formed."
+            ) from exc
 
 
 def _find_valid_root(raw_page: RawPageObservation) -> RawFrameObservation | None:
@@ -176,6 +201,37 @@ def _frame_snapshot(
         ),
         errors,
     )
+
+
+def _failed_frame_snapshot(
+    raw_frame: RawFrameObservation,
+    sanitizer: _Sanitizer,
+    redaction_count_before_frame: int,
+) -> tuple[FrameSnapshot, list[SnapshotError]]:
+    error = SnapshotError(
+        scope="frame",
+        error_code="frame_modeling_failed",
+        message="Frame observation could not be converted into a snapshot.",
+        recoverable=True,
+        occurred_at=datetime.now(UTC),
+    )
+    frame = FrameSnapshot(
+        frame_id=sanitizer.text(raw_frame.frame_id),
+        parent_frame_id=_optional_text(raw_frame.parent_frame_id, sanitizer),
+        traversal_index=max(raw_frame.traversal_index, 0),
+        depth=max(raw_frame.depth, 0),
+        name=sanitizer.text(raw_frame.name),
+        url=sanitizer.url(raw_frame.url),
+        status="failed",
+        text_summary="",
+        elements=[],
+        scroll_results=[],
+        errors=[error],
+        truncated=False,
+        stop_reason="error",
+        redaction_count=sanitizer.count - redaction_count_before_frame,
+    )
+    return frame, [error]
 
 
 def _element_snapshot(

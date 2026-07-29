@@ -1,6 +1,8 @@
 """Tests for raw-observation collection orchestration."""
 
-from ai_ui_explorer.snapshot.collector import SnapshotCollector
+import pytest
+
+from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
 
 from .fakes import FakeSource
@@ -39,3 +41,47 @@ def test_collector_tracks_redactions_per_frame_and_globally() -> None:
     assert snapshot.frames[0].redaction_count == 2
     assert snapshot.frames[1].redaction_count == 0
     assert snapshot.statistics.redaction_count == 2
+
+
+def test_collector_rejects_raw_page_returned_after_global_deadline() -> None:
+    clock_values = iter([0.0, 2.0])
+    collector = SnapshotCollector(
+        source=FakeSource.with_text("Visible page text"),
+        monotonic_clock=lambda: next(clock_values),
+    )
+
+    with pytest.raises(CollectionFailedError, match="deadline"):
+        collector.collect("https://example.test", SnapshotLimits(total_timeout_ms=1_000))
+
+
+def test_collector_counts_redactions_in_page_fields() -> None:
+    snapshot = SnapshotCollector(
+        source=FakeSource.with_page_fields(
+            frame_id="token=frame-secret",
+            language="token=language-secret",
+        )
+    ).collect("https://example.test", SnapshotLimits())
+
+    assert "frame-secret" not in snapshot.model_dump_json()
+    assert "language-secret" not in snapshot.model_dump_json()
+    assert snapshot.statistics.redaction_count == 5
+
+
+def test_collector_wraps_invalid_root_frame_as_collection_failure() -> None:
+    with pytest.raises(CollectionFailedError, match="root"):
+        SnapshotCollector(source=FakeSource.with_invalid_root()).collect(
+            "https://example.test", SnapshotLimits()
+        )
+
+
+def test_collector_keeps_valid_root_when_child_frame_modeling_fails() -> None:
+    snapshot = SnapshotCollector(
+        source=FakeSource.with_one_success_and_one_invalid_child()
+    ).collect("https://example.test", SnapshotLimits())
+
+    assert snapshot.status == "partial"
+    assert [frame.status for frame in snapshot.frames] == ["completed", "failed"]
+    assert snapshot.frames[1].errors[0].recoverable is True
+    assert snapshot.frames[1].redaction_count == 0
+    assert snapshot.statistics.redaction_count == 2
+    assert snapshot.errors[-1].recoverable is True
