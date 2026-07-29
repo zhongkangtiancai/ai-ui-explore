@@ -76,6 +76,12 @@ class SnapshotError(BaseModel):
     recoverable: bool
     occurred_at: datetime
 
+    @model_validator(mode="after")
+    def validate_occurred_at(self) -> Self:
+        if not _is_utc(self.occurred_at):
+            raise ValueError("error timestamps must use UTC")
+        return self
+
 
 class FrameSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -143,7 +149,19 @@ class SnapshotDocument(BaseModel):
 
     @model_validator(mode="after")
     def validate_status(self) -> Self:
-        if self.status == "completed" and (self.truncated or self.errors):
+        has_incomplete_frame = any(
+            frame.status != "completed"
+            or frame.errors
+            or frame.truncated
+            or any(
+                scroll_result.stop_reason == "error" or scroll_result.truncated
+                for scroll_result in frame.scroll_results
+            )
+            for frame in self.frames
+        )
+        if self.status == "completed" and (
+            self.truncated or self.errors or has_incomplete_frame
+        ):
             raise ValueError("completed snapshots cannot contain errors or truncation")
         if not _is_utc(self.started_at) or not _is_utc(self.completed_at):
             raise ValueError("snapshot timestamps must use UTC")

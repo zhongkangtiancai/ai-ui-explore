@@ -3,9 +3,14 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from ai_ui_explorer.snapshot.models import Bounds, SnapshotDocument, SnapshotLimits
+from ai_ui_explorer.snapshot.models import (
+    Bounds,
+    SnapshotDocument,
+    SnapshotError,
+    SnapshotLimits,
+)
 
-from .factories import make_oversized_snapshot, make_snapshot
+from .factories import make_frame, make_oversized_snapshot, make_snapshot
 
 
 def test_snapshot_limits_use_approved_defaults() -> None:
@@ -37,6 +42,69 @@ def test_snapshot_rejects_completed_status_when_errors_exist() -> None:
                     "occurred_at": "2026-07-29T00:00:01+00:00",
                 }
             ]
+        )
+
+
+@pytest.mark.parametrize(
+    "frame_overrides",
+    [
+        {"status": "partial"},
+        {"status": "failed"},
+        {
+            "errors": [
+                {
+                    "scope": "frame",
+                    "error_code": "FRAME_ERROR",
+                    "message": "frame failed",
+                    "recoverable": True,
+                    "occurred_at": "2026-07-29T00:00:01+00:00",
+                }
+            ]
+        },
+        {"truncated": True},
+        {
+            "scroll_results": [
+                {
+                    "container_id": "results",
+                    "label": "Results",
+                    "rounds": 1,
+                    "discovered_elements": 0,
+                    "restored": True,
+                    "truncated": False,
+                    "stop_reason": "error",
+                }
+            ]
+        },
+        {
+            "scroll_results": [
+                {
+                    "container_id": "results",
+                    "label": "Results",
+                    "rounds": 1,
+                    "discovered_elements": 0,
+                    "restored": True,
+                    "truncated": True,
+                    "stop_reason": "stable",
+                }
+            ]
+        },
+    ],
+)
+def test_snapshot_rejects_completed_status_when_a_frame_is_incomplete(
+    frame_overrides: dict[str, object],
+) -> None:
+    with pytest.raises(ValidationError):
+        make_snapshot(frames=[make_frame(**frame_overrides)])
+
+
+def test_snapshot_error_rejects_non_utc_timestamps() -> None:
+    with pytest.raises(ValidationError):
+        SnapshotError(
+            scope="page",
+            error_code="TIMEOUT",
+            message="timed out",
+            recoverable=True,
+            occurred_at="2026-07-29T08:00:01+08:00",
         )
 
 
