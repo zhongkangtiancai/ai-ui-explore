@@ -338,12 +338,9 @@ class PlaywrightBrowserSource:
                 language = None
                 title = ""
             else:
-                language = cast(
-                    str | None,
-                    page.locator("html").get_attribute(
-                        "lang",
-                        timeout=_remaining_milliseconds(deadline),
-                    ),
+                language = page.locator("html").get_attribute(
+                    "lang",
+                    timeout=_remaining_milliseconds(deadline),
                 )
                 _raise_if_deadline_reached(deadline)
                 page.set_default_timeout(_remaining_milliseconds(deadline))
