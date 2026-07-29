@@ -20,6 +20,7 @@ ai-ui-snapshot = "ai_ui_explorer.snapshot.cli:main"
 [project.optional-dependencies]
 dev = [
     "httpx==0.28.1",
+    "jsonschema==4.25.1",
     "mypy==1.17.0",
     "pytest==8.4.1",
     "pytest-cov==6.2.1",

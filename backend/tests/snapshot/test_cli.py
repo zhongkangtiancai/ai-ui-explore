@@ -4,11 +4,21 @@ import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator, FormatChecker
 
 from ai_ui_explorer.snapshot.cli import build_parser, main
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
 
 from .factories import make_snapshot
+
+_SNAPSHOT_SCHEMA_PATH = (
+    Path(__file__).parents[2]
+    / "src"
+    / "ai_ui_explorer"
+    / "snapshot"
+    / "schema"
+    / "snapshot-v1.schema.json"
+)
 
 
 class FakeCollector:
@@ -87,6 +97,9 @@ def test_real_cli_collects_fixture(
     output_path = tmp_path / "snapshot.json"
     serialized = output_path.read_text(encoding="utf-8")
     SnapshotDocument.model_validate(json.loads(serialized))
+    schema = json.loads(_SNAPSHOT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(json.loads(serialized))
     captured = capsys.readouterr()
 
     assert result in {0, 2}
