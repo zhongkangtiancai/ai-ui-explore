@@ -35,15 +35,16 @@ _TEXT_SENSITIVE_KEYS = "|".join(
     re.escape(key) for key in _SENSITIVE_KEY_CATEGORIES if key != "authorization"
 )
 _SENSITIVE_KEY_NAME_PATTERN = rf"(?:{_TEXT_SENSITIVE_KEYS}|[A-Za-z][A-Za-z0-9-]*_token)"
+_QUOTED_VALUE_PATTERN = r'''(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')'''
 _AUTHORIZATION_PATTERN = re.compile(
     r"(?P<key_quote>[\"'])?(?P<key>\bauthorization\b)(?(key_quote)(?P=key_quote))"
-    r"(?P<separator>\s*:\s*)(?:\"[^\"]*\"|'[^']*'|(?:bearer\s+)?[^\s,;,&}\]]+)",
+    rf"(?P<separator>\s*:\s*)(?:{_QUOTED_VALUE_PATTERN}|(?:bearer\s+)?[^\s,;,&}}\]]+)",
     re.IGNORECASE,
 )
 _SENSITIVE_KEY_VALUE_PATTERN = re.compile(
     rf"(?P<key_quote>[\"'])?(?P<key>{_SENSITIVE_KEY_NAME_PATTERN})"
     rf"(?(key_quote)(?P=key_quote))(?P<separator>\s*[:=]\s*)"
-    rf"(?:\"[^\"]*\"|'[^']*'|[^\s,;,&}}\]]+)",
+    rf"(?:{_QUOTED_VALUE_PATTERN}|[^\s,;,&}}\]]+)",
     re.IGNORECASE,
 )
 _BEARER_TOKEN_PATTERN = re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)

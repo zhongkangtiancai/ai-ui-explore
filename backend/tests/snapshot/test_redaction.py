@@ -196,3 +196,27 @@ def test_redactor_preserves_brackets_when_rebuilding_ipv6_urls() -> None:
 
     assert result.count == 0
     assert result.value == "https://[2001:db8::1]:8443/path?view=list"
+
+
+def test_redactor_consumes_escaped_double_quotes_in_json_sensitive_values() -> None:
+    raw = '{"password": "prefix \\"quoted\\" suffix"}'
+
+    result = Redactor().redact_text(raw)
+
+    count = result.count
+    assert count == 1
+    assert result.categories == frozenset({"PASSWORD"})
+    has_unredacted_suffix = "suffix" in result.value
+    assert not has_unredacted_suffix
+
+
+def test_redactor_consumes_escaped_single_quotes_in_error_sensitive_values() -> None:
+    raw = "request failed: {'secret': 'prefix \\\'quoted\\' suffix'}"
+
+    result = Redactor().redact_error(raw)
+
+    count = result.count
+    assert count == 1
+    assert result.categories == frozenset({"SECRET"})
+    has_unredacted_suffix = "suffix" in result.value
+    assert not has_unredacted_suffix
