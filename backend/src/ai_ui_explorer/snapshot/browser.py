@@ -2,24 +2,41 @@
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from time import monotonic
 from typing import Literal, Protocol, TypedDict, cast
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Frame, Page, sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from ai_ui_explorer.snapshot.models import Bounds, SnapshotLimits
 
-_INTERACTIVE_ELEMENT_SCRIPT = """
-({ maxElements, maxTextChars }) => {
+_OBSERVATION_ATTRIBUTE = "data-snapshot-observation"
+_OBSERVATION_SELECTOR = "snapshot_observation"
+_OBSERVATION_SELECTOR_ENGINE = """
+(() => {
+const collect = (root, { maxElements, maxTextChars }) => {
   const clip = (value) => {
     if (typeof value !== "string") return null;
     return value.replace(/\\s+/g, " ").trim().slice(0, maxTextChars);
   };
+  const body = root.querySelector("body");
+  const bodyText = body?.innerText || "";
+  const observations = [];
+  const result = (elementsTruncated) => ({
+    text: {
+      text: bodyText.slice(0, maxTextChars),
+      truncated: bodyText.length > maxTextChars,
+    },
+    elements: { observations, truncated: elementsTruncated },
+  });
   const implicitRole = (element) => {
     const tag = element.tagName.toLowerCase();
     if (tag === "button") return "button";
@@ -51,10 +68,9 @@ _INTERACTIVE_ELEMENT_SCRIPT = """
     if (value === "false") return false;
     return null;
   };
-  const candidates = document.querySelectorAll(
+  const candidates = root.querySelectorAll(
     "a[href],button,input:not([type='hidden']),select,textarea,summary,[role],[tabindex]"
   );
-  const observations = [];
   for (const element of candidates) {
     const bounds = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
@@ -62,6 +78,9 @@ _INTERACTIVE_ELEMENT_SCRIPT = """
       && style.display !== "none"
       && style.visibility !== "hidden";
     if (!visible) continue;
+    if (observations.length >= maxElements) {
+      return result(true);
+    }
 
     const tag = element.tagName.toLowerCase();
     const role = element.getAttribute("role") || implicitRole(element);
@@ -133,17 +152,23 @@ _INTERACTIVE_ELEMENT_SCRIPT = """
       },
       locatorHints,
     });
-    if (observations.length >= maxElements) break;
   }
-  return observations;
-}
-"""
-
-_BODY_TEXT_SCRIPT = """
-(maxTextChars) => {
-  const text = document.body?.innerText || "";
-  return text.slice(0, maxTextChars);
-}
+  return result(false);
+};
+const query = (root, selector) => {
+  const payload = collect(root, JSON.parse(selector));
+  const documentNode = root.nodeType === Node.DOCUMENT_NODE ? root : root.ownerDocument;
+  const carrier = documentNode.createElement("meta");
+  carrier.setAttribute("data-snapshot-observation", JSON.stringify(payload));
+  return carrier;
+};
+return {
+  query,
+  queryAll(root, selector) {
+    return [query(root, selector)];
+  },
+};
+})()
 """
 
 
@@ -241,14 +266,17 @@ class PlaywrightBrowserSource:
 
     def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
         """Collect initial visible content without navigation side effects beyond page load."""
+        _configure_local_browser_path()
         deadline = monotonic() + (limits.total_timeout_ms / 1_000)
-        with _managed_page(headless=self._headless) as page:
+        with _managed_page(headless=self._headless, deadline=deadline) as page:
             page.goto(
                 url,
                 wait_until="domcontentloaded",
                 timeout=_remaining_milliseconds(deadline),
             )
+            _raise_if_deadline_reached(deadline)
             _wait_for_dynamic_frames(page, deadline)
+            _raise_if_deadline_reached(deadline)
 
             ordered_frames = _ordered_frames(page.main_frame)
             page_errors: list[RawErrorObservation] = []
@@ -284,10 +312,24 @@ class PlaywrightBrowserSource:
                 deadline_reached = deadline_reached or frame_observation.stop_reason == "deadline"
 
             viewport = page.viewport_size or {"width": 1280, "height": 720}
-            language = cast(str | None, page.locator("html").get_attribute("lang"))
+            if deadline_reached:
+                language = None
+                title = ""
+            else:
+                language = cast(
+                    str | None,
+                    page.locator("html").get_attribute(
+                        "lang",
+                        timeout=_remaining_milliseconds(deadline),
+                    ),
+                )
+                _raise_if_deadline_reached(deadline)
+                page.set_default_timeout(_remaining_milliseconds(deadline))
+                title = page.title()
+                _raise_if_deadline_reached(deadline)
             return RawPageObservation(
                 final_url=page.url,
-                title=page.title(),
+                title=title,
                 viewport_width=viewport["width"],
                 viewport_height=viewport["height"],
                 language=language,
@@ -324,24 +366,47 @@ class _RawElementPayload(TypedDict):
     locatorHints: list[_RawLocatorHintPayload]
 
 
+class _RawTextPayload(TypedDict):
+    text: str
+    truncated: bool
+
+
+class _RawElementsPayload(TypedDict):
+    observations: list[_RawElementPayload]
+    truncated: bool
+
+
+class _RawFramePayload(TypedDict):
+    text: _RawTextPayload
+    elements: _RawElementsPayload
+
+
 @contextmanager
-def _managed_page(*, headless: bool) -> Iterator[Page]:
+def _managed_page(*, headless: bool, deadline: float) -> Iterator[Page]:
     with sync_playwright() as playwright:
+        playwright.selectors.register(
+            _OBSERVATION_SELECTOR,
+            script=_OBSERVATION_SELECTOR_ENGINE,
+            content_script=True,
+        )
         try:
-            browser = playwright.chromium.launch(headless=headless)
+            browser = playwright.chromium.launch(
+                headless=headless,
+                timeout=_remaining_milliseconds(deadline),
+            )
         except PlaywrightError as exc:
             if "executable doesn't exist" in str(exc).lower():
-                raise BrowserUnavailableError(
-                    "Project-local Chromium is unavailable. "
-                    "Run: python -m playwright install chromium"
-                ) from None
+                raise BrowserUnavailableError(_browser_install_guidance()) from None
             raise
 
         try:
+            _raise_if_deadline_reached(deadline)
             context = browser.new_context()
             try:
+                _raise_if_deadline_reached(deadline)
                 page = context.new_page()
                 try:
+                    _raise_if_deadline_reached(deadline)
                     yield page
                 finally:
                     with suppress(PlaywrightError):
@@ -355,7 +420,15 @@ def _managed_page(*, headless: bool) -> Iterator[Page]:
 
 
 def _remaining_milliseconds(deadline: float) -> int:
-    return max(1, int((deadline - monotonic()) * 1_000))
+    remaining = int((deadline - monotonic()) * 1_000)
+    if remaining <= 0:
+        raise _DeadlineReached
+    return remaining
+
+
+def _raise_if_deadline_reached(deadline: float) -> None:
+    if monotonic() >= deadline:
+        raise _DeadlineReached
 
 
 def _wait_for_dynamic_frames(page: Page, deadline: float) -> None:
@@ -390,11 +463,55 @@ def _observe_frame(
     depth = _frame_depth(frame)
     name = "main" if parent is None else (frame.name or frame_id)
     url = frame.url
-    if monotonic() >= deadline:
+    text_summary = ""
+    elements: list[RawElementObservation] = []
+    try:
+        _raise_if_deadline_reached(deadline)
+        if frame.url:
+            frame.wait_for_load_state(
+                "domcontentloaded",
+                timeout=_remaining_milliseconds(deadline),
+            )
+        else:
+            frame.wait_for_url(
+                lambda current_url: bool(current_url),
+                wait_until="domcontentloaded",
+                timeout=_remaining_milliseconds(deadline),
+            )
+        _raise_if_deadline_reached(deadline)
+        selector_argument = json.dumps(
+            {
+                "maxElements": remaining_elements,
+                "maxTextChars": limits.max_text_chars,
+            },
+            separators=(",", ":"),
+        )
+        raw_payload = frame.locator(
+            f"{_OBSERVATION_SELECTOR}={selector_argument}"
+        ).get_attribute(
+            _OBSERVATION_ATTRIBUTE,
+            timeout=_remaining_milliseconds(deadline),
+        )
+        if raw_payload is None:
+            raise PlaywrightError("Utility-world observation carrier has no payload.")
+        frame_payload = cast(_RawFramePayload, json.loads(raw_payload))
+        text_payload = frame_payload["text"]
+        text_summary = text_payload["text"]
+        elements_payload = frame_payload["elements"]
+        _raise_if_deadline_reached(deadline)
+        elements = [
+            _element_from_payload(payload, index)
+            for index, payload in enumerate(elements_payload["observations"])
+        ]
+    except (_DeadlineReached, PlaywrightTimeoutError) as exc:
         error = _raw_error(
             scope=f"frame:{frame_id}",
             error_code="deadline_reached",
-            message="Frame observation stopped at the global deadline.",
+            message=(
+                "Frame observation stopped at the global deadline."
+                if isinstance(exc, _DeadlineReached)
+                else str(exc)
+            ),
         )
         return RawFrameObservation(
             frame_id=frame_id,
@@ -403,46 +520,14 @@ def _observe_frame(
             depth=depth,
             name=name,
             url=url,
-            status="failed",
-            text_summary="",
-            elements=[],
+            status="partial" if text_summary or elements else "failed",
+            text_summary=text_summary,
+            elements=elements,
             scroll_results=[],
             errors=[error],
             truncated=True,
             stop_reason="deadline",
         )
-    if remaining_elements == 0:
-        return RawFrameObservation(
-            frame_id=frame_id,
-            parent_frame_id=parent_frame_id,
-            traversal_index=traversal_index,
-            depth=depth,
-            name=name,
-            url=url,
-            status="partial",
-            text_summary="",
-            elements=[],
-            scroll_results=[],
-            errors=[],
-            truncated=True,
-            stop_reason="max_elements",
-        )
-
-    try:
-        text_summary = cast(str, frame.evaluate(_BODY_TEXT_SCRIPT, limits.max_text_chars))
-        payloads = cast(
-            list[_RawElementPayload],
-            frame.evaluate(
-                _INTERACTIVE_ELEMENT_SCRIPT,
-                {
-                    "maxElements": remaining_elements,
-                    "maxTextChars": limits.max_text_chars,
-                },
-            ),
-        )
-        elements = [
-            _element_from_payload(payload, index) for index, payload in enumerate(payloads)
-        ]
     except PlaywrightError as exc:
         error_code = (
             "frame_detached" if "detached" in str(exc).lower() else "frame_observation_failed"
@@ -468,6 +553,14 @@ def _observe_frame(
             stop_reason="detached" if error_code == "frame_detached" else "error",
         )
 
+    element_truncated = elements_payload["truncated"]
+    text_truncated = text_payload["truncated"]
+    truncated = element_truncated or text_truncated
+    stop_reason = (
+        "max_elements"
+        if element_truncated
+        else ("max_text_chars" if text_truncated else None)
+    )
     return RawFrameObservation(
         frame_id=frame_id,
         parent_frame_id=parent_frame_id,
@@ -475,13 +568,13 @@ def _observe_frame(
         depth=depth,
         name=name,
         url=url,
-        status="completed",
+        status="partial" if truncated else "completed",
         text_summary=text_summary,
         elements=elements,
         scroll_results=[],
         errors=[],
-        truncated=False,
-        stop_reason=None,
+        truncated=truncated,
+        stop_reason=stop_reason,
     )
 
 
@@ -536,4 +629,34 @@ def _raw_error(*, scope: str, error_code: str, message: str) -> RawErrorObservat
         message=message,
         recoverable=True,
         occurred_at=datetime.now(UTC),
+    )
+
+
+class _DeadlineReached(RuntimeError):
+    """Internal signal used to preserve a raw partial observation at the deadline."""
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def _configure_local_browser_path() -> Path:
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if configured:
+        return Path(configured)
+    local_browser_path = _project_root() / ".playwright-browsers"
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local_browser_path)
+    return local_browser_path
+
+
+def _browser_install_guidance() -> str:
+    browser_path = Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"])
+    local_python = _project_root() / ".venv" / "Scripts" / "python.exe"
+    quoted_browser_path = str(browser_path).replace("'", "''")
+    quoted_python = str(local_python).replace("'", "''")
+    return (
+        "Project-local Chromium is unavailable. "
+        "Set the current PowerShell process and install it:\n"
+        f"$env:PLAYWRIGHT_BROWSERS_PATH = '{quoted_browser_path}'\n"
+        f"& '{quoted_python}' -m playwright install chromium"
     )

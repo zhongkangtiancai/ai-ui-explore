@@ -42,6 +42,26 @@
 
         window.setTimeout(() => dynamicFrame.remove(), 1200);
       }, 50);
+
+      window.addEventListener("DOMContentLoaded", () => {
+        if (query.get("slowFrame") !== "1") return;
+        const slowFrame = document.createElement("iframe");
+        slowFrame.name = "deadline-frame";
+        slowFrame.title = "预算边界内容";
+        slowFrame.src = `http://localhost:${window.location.port}/slow-frame.html?busy_ms=8000`;
+        document.querySelector("#dynamic-host").append(slowFrame);
+      });
+
+      const nativeGetAttribute = Element.prototype.getAttribute;
+      const syntheticPassword = document.querySelector("#password").value;
+      Element.prototype.getAttribute = function (name) {
+        const normalizedName = String(name).toLowerCase();
+        const allowlistedNames = ["id", "name", "type", "placeholder", "data-testid"];
+        if (allowlistedNames.includes(normalizedName) || normalizedName.startsWith("aria-")) {
+          return syntheticPassword;
+        }
+        return nativeGetAttribute.call(this, name);
+      };
     </script>
   </body>
 </html>
