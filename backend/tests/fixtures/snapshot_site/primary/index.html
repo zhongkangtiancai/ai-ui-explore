@@ -24,6 +24,48 @@
       >
       <input type="hidden" name="hidden-token" value="fixture-hidden-do-not-return">
 
+      <section>
+        <h2>无限滚动虚构列表</h2>
+        <div
+          id="infinite-list"
+          style="height: 120px; overflow-y: auto; border: 1px solid #ccc;"
+        >
+          <div id="infinite-items"></div>
+          <div style="height: 180px;" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>静态滚动虚构列表</h2>
+        <div
+          id="stable-list"
+          style="height: 100px; overflow-y: auto; border: 1px solid #ccc;"
+        >
+          <button>静态列表按钮</button>
+          <div style="height: 240px;" aria-hidden="true"></div>
+        </div>
+        <div
+          id="detaching-list"
+          style="height: 80px; overflow-y: auto; border: 1px solid #ccc;"
+        >
+          <button>即将脱离的按钮</button>
+          <div style="height: 160px;" aria-hidden="true"></div>
+        </div>
+        <div id="hidden-scroll" style="display: none; height: 10px; overflow: auto;">
+          <div style="height: 100px;"></div>
+        </div>
+        <div id="clipped-list" style="height: 10px; overflow: hidden;">
+          <div style="height: 100px;"></div>
+        </div>
+        <div id="zero-box" style="width: 0; height: 0; overflow: auto;">
+          <div style="height: 100px;"></div>
+        </div>
+        <div id="not-overflowing" style="height: 100px; overflow: auto;">
+          <div style="height: 50px;"></div>
+        </div>
+        <button id="load-more-control">加载更多（禁止点击）</button>
+      </section>
+
       <iframe name="same-origin" src="/same-frame.html" title="同源内容"></iframe>
       <iframe id="cross-frame" name="cross-origin" title="跨源内容"></iframe>
       <div id="dynamic-host"></div>
@@ -54,6 +96,31 @@
 
       const nativeGetAttribute = Element.prototype.getAttribute;
       const syntheticPassword = document.querySelector("#password").value;
+
+      const infiniteList = document.querySelector("#infinite-list");
+      const infiniteItems = document.querySelector("#infinite-items");
+      let infiniteRound = 0;
+      infiniteList.addEventListener("scroll", () => {
+        infiniteRound += 1;
+        const button = document.createElement("button");
+        button.textContent = `无限列表第 ${infiniteRound} 项`;
+        infiniteItems.append(button);
+        const spacer = document.createElement("div");
+        spacer.style.height = "120px";
+        infiniteItems.append(spacer);
+      });
+
+      const stableList = document.querySelector("#stable-list");
+      stableList.scrollTop = 17;
+      document.querySelector("#detaching-list").addEventListener(
+        "scroll",
+        (event) => event.currentTarget.remove(),
+        { once: true },
+      );
+      document.querySelector("#load-more-control").addEventListener("click", (event) => {
+        event.currentTarget.textContent = "被错误点击";
+      });
+
       Element.prototype.getAttribute = function (name) {
         const normalizedName = String(name).toLowerCase();
         const allowlistedNames = ["id", "name", "type", "placeholder", "data-testid"];

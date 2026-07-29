@@ -389,6 +389,16 @@ def _managed_page(*, headless: bool, deadline: float) -> Iterator[Page]:
             script=_OBSERVATION_SELECTOR_ENGINE,
             content_script=True,
         )
+        from ai_ui_explorer.snapshot.scrolling import (
+            _SCROLL_SELECTOR,
+            _SCROLL_SELECTOR_ENGINE,
+        )
+
+        playwright.selectors.register(
+            _SCROLL_SELECTOR,
+            script=_SCROLL_SELECTOR_ENGINE,
+            content_script=True,
+        )
         try:
             browser = playwright.chromium.launch(
                 headless=headless,
@@ -503,6 +513,19 @@ def _observe_frame(
             _element_from_payload(payload, index)
             for index, payload in enumerate(elements_payload["observations"])
         ]
+        from ai_ui_explorer.snapshot.scrolling import collect_with_scrolling
+
+        if remaining_elements > 0:
+            scrolling_limits = limits.model_copy(
+                update={"max_elements": remaining_elements}
+            )
+            elements, scroll_results = collect_with_scrolling(
+                frame,
+                scrolling_limits,
+                deadline,
+            )
+        else:
+            scroll_results = []
     except (_DeadlineReached, PlaywrightTimeoutError) as exc:
         error = _raw_error(
             scope=f"frame:{frame_id}",
@@ -555,11 +578,60 @@ def _observe_frame(
 
     element_truncated = elements_payload["truncated"]
     text_truncated = text_payload["truncated"]
-    truncated = element_truncated or text_truncated
+    scroll_deadline = next(
+        (
+            result
+            for result in scroll_results
+            if result.stop_reason == "deadline"
+        ),
+        None,
+    )
+    scroll_error = next(
+        (
+            result
+            for result in scroll_results
+            if result.stop_reason == "error"
+        ),
+        None,
+    )
+    scroll_errors = (
+        [
+            _raw_error(
+                scope=f"frame:{frame_id}",
+                error_code="deadline_reached",
+                message="Frame scrolling stopped at the global deadline.",
+            )
+        ]
+        if scroll_deadline is not None
+        else (
+            [
+                _raw_error(
+                    scope=f"frame:{frame_id}",
+                    error_code="scroll_observation_failed",
+                    message="A scroll container could not be observed.",
+                )
+            ]
+            if scroll_error is not None
+            else []
+        )
+    )
+    scroll_truncated = any(result.truncated for result in scroll_results)
+    truncated = element_truncated or text_truncated or scroll_truncated
     stop_reason = (
         "max_elements"
         if element_truncated
-        else ("max_text_chars" if text_truncated else None)
+        else (
+            "max_text_chars"
+            if text_truncated
+            else next(
+                (
+                    result.stop_reason
+                    for result in scroll_results
+                    if result.truncated or result.stop_reason == "error"
+                ),
+                None,
+            )
+        )
     )
     return RawFrameObservation(
         frame_id=frame_id,
@@ -568,11 +640,11 @@ def _observe_frame(
         depth=depth,
         name=name,
         url=url,
-        status="partial" if truncated else "completed",
+        status="partial" if truncated or scroll_errors else "completed",
         text_summary=text_summary,
         elements=elements,
-        scroll_results=[],
-        errors=[],
+        scroll_results=scroll_results,
+        errors=scroll_errors,
         truncated=truncated,
         stop_reason=stop_reason,
     )

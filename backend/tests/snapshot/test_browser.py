@@ -61,7 +61,6 @@ def test_browser_does_not_observe_input_values_or_disallowed_page_content(
         for frame in observation.frames
         for element in frame.elements
     )
-    assert all(frame.scroll_results == [] for frame in observation.frames)
 
 
 def test_page_prototype_override_cannot_exfiltrate_input_value(primary_url: str) -> None:

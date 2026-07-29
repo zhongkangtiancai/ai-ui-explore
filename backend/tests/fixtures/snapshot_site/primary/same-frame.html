@@ -8,7 +8,29 @@
     <section>
       <h2>同源虚构内容</h2>
       <button aria-expanded="false">展开虚构区域</button>
+      <div
+        id="finite-nested-list"
+        style="height: 100px; overflow-y: auto; border: 1px solid #ccc;"
+      >
+        <button>嵌套列表首项</button>
+        <div id="finite-items"></div>
+        <div style="height: 150px;" aria-hidden="true"></div>
+      </div>
       <iframe name="nested" src="/nested-frame.html" title="嵌套内容"></iframe>
     </section>
+    <script>
+      const finiteList = document.querySelector("#finite-nested-list");
+      const finiteItems = document.querySelector("#finite-items");
+      let finiteLoaded = false;
+      finiteList.addEventListener("scroll", () => {
+        if (finiteLoaded) return;
+        finiteLoaded = true;
+        const lastItem = document.createElement("input");
+        lastItem.type = "text";
+        lastItem.setAttribute("aria-label", "嵌套列表末项");
+        lastItem.value = "fixture-scroll-secret-do-not-return";
+        finiteItems.append(lastItem);
+      });
+    </script>
   </body>
 </html>

@@ -157,6 +157,15 @@ Frame 动态卸载、超时或受安全策略限制时，不中止其他 Frame�
 10. 尽量恢复各容器的原滚动位置。
 11. 脱敏、模型校验、Schema 校验并原子写入 JSON。
 
+每个 Frame 将文档滚动元素固定为发现序号 `0`，其余容器只接受非零边界框、
+允许滚动的 `overflow` 以及 `scrollHeight > clientHeight + 1` 的可见元素。容器 ID
+由 Frame 遍历序号和发现序号组成，在一次页面状态不变的重复采集中保持稳定。
+
+容器发现、`scrollTop` 设置/恢复和滚动指标读取与元素采集使用两个独立的 Playwright
+`content_script` selector carrier；页面数据只通过原生 `Locator.get_attribute` 读取。
+滚动采集不得通过 main-world `Frame.evaluate` 或 `Locator.evaluate` 读取 DOM，也不得
+读取输入值、点击“加载更多”或其他控件。
+
 滚动本身可能触发懒加载请求，因此属于受预算约束的采集行为。Sprint 1 不分析或
 持久化这些网络请求。
 
