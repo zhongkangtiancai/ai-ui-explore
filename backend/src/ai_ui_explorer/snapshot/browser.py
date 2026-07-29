@@ -638,20 +638,20 @@ def _observe_frame(
             [
                 _raw_error(
                     scope=f"frame:{frame_id}",
-                    error_code="scroll_observation_failed",
-                    message="A scroll container could not be observed.",
+                    error_code="scroll_container_detached",
+                    message="A scroll container detached during observation.",
                 )
             ]
-            if scroll_error is not None
+            if scroll_detached is not None
             else (
                 [
                     _raw_error(
                         scope=f"frame:{frame_id}",
-                        error_code="scroll_container_detached",
-                        message="A scroll container detached during observation.",
+                        error_code="scroll_observation_failed",
+                        message="A scroll container could not be observed.",
                     )
                 ]
-                if scroll_detached is not None
+                if scroll_error is not None
                 else []
             )
         )
@@ -661,48 +661,25 @@ def _observe_frame(
         for result in scroll_results
     )
     truncated = element_truncated or text_truncated or scroll_truncated
+    prioritized_scroll_reason = next(
+        (
+            reason
+            for reason in ("deadline", "max_elements", "detached", "error")
+            if any(result.stop_reason == reason for result in scroll_results)
+        ),
+        None,
+    )
     stop_reason = (
-        "max_elements"
-        if element_truncated
-        else (
-            "max_text_chars"
-            if text_truncated
-            else next(
-                (
-                    result.stop_reason
-                    for result in scroll_results
-                    if result.stop_reason == "deadline"
-                ),
-                next(
-                    (
-                        result.stop_reason
-                        for result in scroll_results
-                        if result.stop_reason == "max_elements"
-                    ),
-                    next(
-                        (
-                            result.stop_reason
-                            for result in scroll_results
-                            if result.stop_reason == "detached"
-                        ),
-                        next(
-                            (
-                                result.stop_reason
-                                for result in scroll_results
-                                if result.stop_reason == "error"
-                            ),
-                            next(
-                                (
-                                    result.stop_reason
-                                    for result in scroll_results
-                                    if result.truncated
-                                ),
-                                None,
-                            ),
-                        ),
-                    ),
-                ),
-            )
+        prioritized_scroll_reason
+        or ("max_elements" if element_truncated else None)
+        or ("max_text_chars" if text_truncated else None)
+        or next(
+            (
+                result.stop_reason
+                for result in scroll_results
+                if result.truncated
+            ),
+            None,
         )
     )
     return RawFrameObservation(

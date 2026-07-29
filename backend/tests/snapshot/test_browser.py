@@ -99,7 +99,7 @@ def test_element_limit_marks_frame_partial_and_truncated(primary_url: str) -> No
 def test_text_limit_marks_frame_partial_and_truncated(primary_url: str) -> None:
     """Body text clipping must be observable instead of looking completed."""
     observation = PlaywrightBrowserSource(headless=True).collect(
-        primary_url,
+        f"{primary_url}&scrollFixture=identity",
         SnapshotLimits(max_text_chars=10),
     )
 

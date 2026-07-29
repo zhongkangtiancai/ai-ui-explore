@@ -128,6 +128,25 @@ def test_detached_container_is_recorded_without_stopping_other_frames(
     assert any(frame.status == "completed" for frame in observation.frames)
 
 
+def test_detached_reason_overrides_text_truncation(primary_url: str) -> None:
+    observation = PlaywrightBrowserSource(headless=True).collect(
+        primary_url,
+        SnapshotLimits(
+            max_text_chars=1,
+            max_scroll_rounds_per_container=10,
+        ),
+    )
+    detached_frame = next(
+        frame
+        for frame in observation.frames
+        if any(result.stop_reason == "detached" for result in frame.scroll_results)
+    )
+
+    assert detached_frame.status == "partial"
+    assert detached_frame.truncated is True
+    assert detached_frame.stop_reason == "detached"
+
+
 def test_detached_frame_during_scroll_returns_recoverable_result(
     primary_url: str,
 ) -> None:
