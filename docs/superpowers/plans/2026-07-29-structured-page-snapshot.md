@@ -897,26 +897,29 @@ git commit -m "feat: expose snapshot collection cli"
 - `scripts/check.cmd` runs all backend/frontend checks with the local browser path.
 - README documents the exact CLI and data-safety boundary.
 
-- [ ] **Step 1: Add a failing workflow assertion**
+- [ ] **Step 1: Record the approved configuration/documentation TDD exception**
 
-Add a test in `backend/tests/snapshot/test_cli.py` that reads `README.md`, `scripts/bootstrap.ps1`,
-and `.gitignore` and asserts they respectively contain `ai-ui-snapshot`,
-`python -m playwright install chromium`, and `.playwright-browsers/`.
-
-- [ ] **Step 2: Run it and verify RED**
-
-Run:
+Task 8 changes PowerShell workflow configuration and documentation. The user explicitly approved
+real workflow verification instead of a unit test that reads files and asserts implementation
+strings. Record the pre-change evidence:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest backend\tests\snapshot\test_cli.py::test_project_documents_snapshot_workflow -v
+git check-ignore -v .playwright-browsers/verification
+.\.venv\Scripts\ai-ui-snapshot.exe --help
 ```
 
-Expected: failure because the README and scripts do not yet expose the Sprint 1 workflow.
+Expected before Task 8: the browser directory is not yet ignored and the CLI help already exists
+from Task 7. Do not treat text presence in a file as behavior verification.
 
-- [ ] **Step 3: Complete workflow and documentation**
+- [ ] **Step 2: Complete the Windows workflow**
 
 Update bootstrap to set the project-local browser path and explicitly install Chromium after the
-locked editable package. Update check to set the same path before backend tests. Document:
+locked editable package. Update check to set the same path before backend tests. Add
+`.playwright-browsers/` to `.gitignore`.
+
+- [ ] **Step 3: Complete user and governance documentation**
+
+Document:
 
 - installation and local Chromium disk impact;
 - complete CLI example and exit codes;
