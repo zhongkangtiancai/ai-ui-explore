@@ -1,0 +1,169 @@
+"""Pydantic models for the versioned page snapshot contract."""
+
+from datetime import datetime, timedelta
+from typing import Literal, Self, cast
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class SnapshotLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    total_timeout_ms: int = Field(default=60_000, ge=1_000, le=600_000)
+    max_frames: int = Field(default=50, ge=1, le=500)
+    max_scroll_containers_per_frame: int = Field(default=20, ge=0, le=200)
+    max_scroll_rounds_per_container: int = Field(default=30, ge=0, le=500)
+    max_elements: int = Field(default=5_000, ge=1, le=100_000)
+    max_text_chars: int = Field(default=500, ge=0, le=10_000)
+    max_json_bytes: int = Field(default=10 * 1024 * 1024, ge=64 * 1024, le=100 * 1024 * 1024)
+
+
+class Bounds(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: float
+    y: float
+    width: float = Field(ge=0)
+    height: float = Field(ge=0)
+
+
+class LocatorHint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: Literal["role", "label", "testid", "id"]
+    value: str
+
+
+class ElementSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    element_id: str
+    frame_id: str
+    traversal_index: int = Field(ge=0)
+    tag: str
+    role: str | None
+    accessible_name: str | None
+    text: str | None
+    attributes: dict[str, str]
+    visible: bool
+    enabled: bool | None
+    checked: bool | None
+    selected: bool | None
+    expanded: bool | None
+    bounds: Bounds | None
+    locator_hints: list[LocatorHint]
+
+
+class ScrollResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    container_id: str
+    label: str
+    rounds: int = Field(ge=0)
+    discovered_elements: int = Field(ge=0)
+    restored: bool
+    truncated: bool
+    stop_reason: Literal["stable", "end_reached", "round_limit", "deadline", "detached", "error"]
+
+
+class SnapshotError(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope: str
+    error_code: str
+    message: str
+    recoverable: bool
+    occurred_at: datetime
+
+
+class FrameSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    frame_id: str
+    parent_frame_id: str | None
+    traversal_index: int = Field(ge=0)
+    depth: int = Field(ge=0)
+    name: str
+    url: str
+    status: Literal["completed", "partial", "failed"]
+    text_summary: str
+    elements: list[ElementSnapshot]
+    scroll_results: list[ScrollResult]
+    errors: list[SnapshotError]
+    truncated: bool
+    stop_reason: str | None
+    redaction_count: int = Field(ge=0)
+
+
+class SourceSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requested_url: str
+    final_url: str
+    title: str
+
+
+class PageSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    main_frame_id: str
+    viewport_width: int = Field(ge=1)
+    viewport_height: int = Field(ge=1)
+    language: str | None
+
+
+class SnapshotStatistics(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    frame_count: int = Field(ge=0)
+    completed_frame_count: int = Field(ge=0)
+    failed_frame_count: int = Field(ge=0)
+    element_count: int = Field(ge=0)
+    scroll_container_count: int = Field(ge=0)
+    redaction_count: int = Field(ge=0)
+    duration_ms: int = Field(ge=0)
+
+
+class SnapshotDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    snapshot_id: UUID
+    status: Literal["completed", "partial"]
+    started_at: datetime
+    completed_at: datetime
+    source: SourceSnapshot
+    limits: SnapshotLimits
+    statistics: SnapshotStatistics
+    page: PageSnapshot
+    frames: list[FrameSnapshot]
+    errors: list[SnapshotError]
+    truncated: bool
+
+    @model_validator(mode="after")
+    def validate_status(self) -> Self:
+        if self.status == "completed" and (self.truncated or self.errors):
+            raise ValueError("completed snapshots cannot contain errors or truncation")
+        if not _is_utc(self.started_at) or not _is_utc(self.completed_at):
+            raise ValueError("snapshot timestamps must use UTC")
+        if self.completed_at < self.started_at:
+            raise ValueError("completed_at must not be earlier than started_at")
+        if self.page.main_frame_id not in {frame.frame_id for frame in self.frames}:
+            raise ValueError("page.main_frame_id must exist in frames")
+
+        actual_element_count = sum(len(frame.elements) for frame in self.frames)
+        if (
+            self.statistics.element_count > self.limits.max_elements
+            or actual_element_count > self.limits.max_elements
+        ):
+            raise ValueError("element count exceeds the approved limit")
+        return self
+
+    @classmethod
+    def to_schema(cls) -> dict[str, object]:
+        return cast(dict[str, object], cls.model_json_schema())
+
+
+def _is_utc(value: datetime) -> bool:
+    return value.tzinfo is not None and value.utcoffset() == timedelta(0)

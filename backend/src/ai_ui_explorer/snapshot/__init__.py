@@ -1,0 +1,1 @@
+"""Versioned page snapshot contract."""
