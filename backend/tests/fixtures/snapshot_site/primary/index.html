@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>结构化页面快照测试站点</title>
+  </head>
+  <body>
+    <main>
+      <h1>虚构工单控制台</h1>
+      <p>这里只包含用于自动化测试的虚构文本。</p>
+      <button id="save-draft" data-testid="save-draft">保存草稿</button>
+      <a href="/same-frame.html">查看虚构详情</a>
+
+      <label for="subject">主题</label>
+      <input id="subject" name="subject" placeholder="输入虚构主题">
+
+      <label for="password">虚构密码</label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        value="fixture-password-do-not-return"
+        data-private="must-not-return"
+      >
+      <input type="hidden" name="hidden-token" value="fixture-hidden-do-not-return">
+
+      <iframe name="same-origin" src="/same-frame.html" title="同源内容"></iframe>
+      <iframe id="cross-frame" name="cross-origin" title="跨源内容"></iframe>
+      <div id="dynamic-host"></div>
+    </main>
+
+    <script>
+      const query = new URLSearchParams(window.location.search);
+      document.querySelector("#cross-frame").src = query.get("secondary");
+
+      window.setTimeout(() => {
+        const dynamicFrame = document.createElement("iframe");
+        dynamicFrame.name = "dynamic";
+        dynamicFrame.title = "动态内容";
+        dynamicFrame.src = "/nested-frame.html?dynamic=1";
+        document.querySelector("#dynamic-host").append(dynamicFrame);
+
+        window.setTimeout(() => dynamicFrame.remove(), 1200);
+      }, 50);
+    </script>
+  </body>
+</html>

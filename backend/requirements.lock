@@ -6,6 +6,7 @@ click==8.4.2
 colorama==0.4.6
 coverage==7.15.2
 fastapi==0.116.1
+greenlet==3.5.4
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.8.0
@@ -16,10 +17,12 @@ mypy==1.17.0
 mypy_extensions==1.1.0
 packaging==26.2
 pathspec==1.1.1
+playwright==1.61.0
 pluggy==1.6.0
 pydantic==2.13.4
 pydantic-settings==2.10.1
 pydantic_core==2.46.4
+pyee==13.0.1
 Pygments==2.20.0
 pytest==8.4.1
 pytest-cov==6.2.1

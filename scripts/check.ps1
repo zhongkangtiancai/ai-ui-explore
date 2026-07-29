@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+$env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $ProjectRoot '.playwright-browsers'
 
 if (-not (Test-Path -LiteralPath $Python)) {
     throw 'Project virtual environment not found. Run scripts\bootstrap.cmd first.'
