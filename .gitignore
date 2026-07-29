@@ -1,0 +1,42 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+htmlcov/
+.coverage
+
+# Node
+node_modules/
+.pnpm-store/
+.vite/
+*.tsbuildinfo
+frontend/dist/
+frontend/coverage/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Sensitive exploration artifacts
+storage-state/
+auth-state/
+screenshots/
+traces/
+network-captures/
+exploration-output/
+knowledge-exports/
+*.har
+*.trace.zip
