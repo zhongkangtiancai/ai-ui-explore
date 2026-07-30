@@ -16,7 +16,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Frame, Page, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from ai_ui_explorer.snapshot.models import Bounds, SnapshotLimits
+from ai_ui_explorer.snapshot.models import Bounds, FrameStopReason, SnapshotLimits
 
 _OBSERVATION_ATTRIBUTE = "data-snapshot-observation"
 _OBSERVATION_SELECTOR = "snapshot_observation"
@@ -34,9 +34,12 @@ const observationNodeIdFor = (element) => {
   return nodeId;
 };
 const collect = (root, { maxElements, maxTextChars }) => {
+  let carrierTextTruncated = false;
   const clip = (value) => {
     if (typeof value !== "string") return null;
-    return value.replace(/\\s+/g, " ").trim().slice(0, maxTextChars);
+    const normalized = value.replace(/\\s+/g, " ").trim();
+    if (normalized.length > maxTextChars) carrierTextTruncated = true;
+    return normalized.slice(0, maxTextChars);
   };
   const body = root.querySelector("body");
   const bodyText = body?.innerText || "";
@@ -46,7 +49,11 @@ const collect = (root, { maxElements, maxTextChars }) => {
       text: bodyText.slice(0, maxTextChars),
       truncated: bodyText.length > maxTextChars,
     },
-    elements: { observations, truncated: elementsTruncated },
+    elements: {
+      observations,
+      truncated: elementsTruncated,
+      textTruncated: carrierTextTruncated,
+    },
   });
   const implicitRole = (element) => {
     const tag = element.tagName.toLowerCase();
@@ -94,7 +101,7 @@ const collect = (root, { maxElements, maxTextChars }) => {
     }
 
     const tag = element.tagName.toLowerCase();
-    const role = element.getAttribute("role") || implicitRole(element);
+    const role = clip(element.getAttribute("role")) || implicitRole(element);
     const label = labelText(element);
     const accessibleName = clip(element.getAttribute("aria-label"))
       || referencedName(element)
@@ -249,7 +256,7 @@ class RawFrameObservation:
     scroll_results: list[RawScrollResult]
     errors: list[RawErrorObservation]
     truncated: bool
-    stop_reason: str | None
+    stop_reason: FrameStopReason | None
 
 
 @dataclass(slots=True)
@@ -293,7 +300,8 @@ class PlaywrightBrowserSource:
 
             ordered_frames = _ordered_frames(page.main_frame)
             page_errors: list[RawErrorObservation] = []
-            if len(ordered_frames) > limits.max_frames:
+            frame_limit_reached = len(ordered_frames) > limits.max_frames
+            if frame_limit_reached:
                 ordered_frames = ordered_frames[: limits.max_frames]
                 page_errors.append(
                     _raw_error(
@@ -332,6 +340,14 @@ class PlaywrightBrowserSource:
                 frames.append(frame_observation)
                 observed_elements += len(frame_observation.elements)
                 deadline_reached = deadline_reached or frame_observation.stop_reason == "deadline"
+
+            if frame_limit_reached and frames:
+                root_frame = frames[0]
+                if root_frame.status == "completed":
+                    root_frame.status = "partial"
+                root_frame.truncated = True
+                if root_frame.stop_reason is None:
+                    root_frame.stop_reason = "max_frames"
 
             viewport = page.viewport_size or {"width": 1280, "height": 720}
             if deadline_reached:
@@ -394,6 +410,7 @@ class _RawTextPayload(TypedDict):
 class _RawElementsPayload(TypedDict):
     observations: list[_RawElementPayload]
     truncated: bool
+    textTruncated: bool
 
 
 class _RawFramePayload(TypedDict):
@@ -539,13 +556,21 @@ def _observe_frame(
             scrolling_limits = limits.model_copy(
                 update={"max_elements": remaining_elements}
             )
-            elements, scroll_results = collect_with_scrolling(
+            scrolling_observation = collect_with_scrolling(
                 frame,
                 scrolling_limits,
                 deadline,
             )
+            elements = scrolling_observation.elements
+            scroll_results = scrolling_observation.scroll_results
+            scroll_text_truncated = scrolling_observation.text_truncated
+            container_limit_reached = (
+                scrolling_observation.container_limit_reached
+            )
         else:
             scroll_results = []
+            scroll_text_truncated = False
+            container_limit_reached = False
     except (_DeadlineReached, PlaywrightTimeoutError) as exc:
         error = _raw_error(
             scope=f"frame:{frame_id}",
@@ -597,7 +622,11 @@ def _observe_frame(
         )
 
     element_truncated = elements_payload["truncated"]
-    text_truncated = text_payload["truncated"]
+    text_truncated = (
+        text_payload["truncated"]
+        or elements_payload["textTruncated"]
+        or scroll_text_truncated
+    )
     scroll_deadline = next(
         (
             result
@@ -653,7 +682,7 @@ def _observe_frame(
             )
         )
     )
-    scroll_truncated = any(
+    scroll_truncated = container_limit_reached or any(
         result.truncated or result.stop_reason == "detached"
         for result in scroll_results
     )
@@ -661,22 +690,35 @@ def _observe_frame(
     prioritized_scroll_reason = next(
         (
             reason
-            for reason in ("deadline", "max_elements", "detached", "error")
+            for reason in ("deadline", "max_elements")
             if any(result.stop_reason == reason for result in scroll_results)
         ),
         None,
     )
-    stop_reason = (
-        prioritized_scroll_reason
-        or ("max_elements" if element_truncated else None)
-        or ("max_text_chars" if text_truncated else None)
-        or next(
-            (
-                result.stop_reason
-                for result in scroll_results
-                if result.truncated
-            ),
-            None,
+    failure_scroll_reason = next(
+        (
+            reason
+            for reason in ("detached", "error")
+            if any(result.stop_reason == reason for result in scroll_results)
+        ),
+        None,
+    )
+    stop_reason = cast(
+        FrameStopReason | None,
+        (
+            prioritized_scroll_reason
+            or ("max_scroll_containers" if container_limit_reached else None)
+            or failure_scroll_reason
+            or ("max_elements" if element_truncated else None)
+            or ("max_text_chars" if text_truncated else None)
+            or next(
+                (
+                    result.stop_reason
+                    for result in scroll_results
+                    if result.truncated
+                ),
+                None,
+            )
         )
     )
     return RawFrameObservation(

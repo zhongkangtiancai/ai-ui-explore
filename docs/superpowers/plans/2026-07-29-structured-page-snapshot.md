@@ -21,6 +21,26 @@
 - Browser binaries live under `.playwright-browsers/` and remain outside Git.
 - Every emitted snapshot must validate against the committed JSON Schema.
 
+## Final Review Contract Addendum
+
+The approved design governs the final review fixes:
+
+- `FrameSnapshot.stop_reason` and `RawFrameObservation.stop_reason` use the bounded
+  `FrameStopReason` values `max_frames`, `max_scroll_containers`, `max_elements`,
+  `max_text_chars`, `round_limit`, `deadline`, `detached`, and `error`.
+- `FrameSnapshot` and `SnapshotStatistics` persist sorted, unique
+  `redaction_categories` alongside `redaction_count`.
+- Element carrier text clipping and scroll-container `has_more` are separate aggregate signals;
+  `collect_with_scrolling` returns a `RawScrollingObservation` carrying both.
+- Top-level error/source/page/statistics/document validation maps to `CollectionFailedError`;
+  child Frame conversion remains recoverable.
+- Every numeric CLI budget is range-checked by argparse. Invalid syntax or range is exit `2`
+  without `snapshot.json`; a usable partial snapshot is also exit `2`, with `snapshot.json`.
+- `CustomRedactionRule(name, category, pattern)` is trusted administrator configuration only:
+  at most 32 rules, 512 pattern characters, safe 64-character identifiers, deterministic
+  ordering, initialization-time compilation, fixed replacement markers, and no built-in
+  override. No regex worst-case runtime guarantee is claimed.
+
 ---
 
 ## File Map
@@ -195,7 +215,9 @@ class ScrollResult(BaseModel):
     discovered_elements: int = Field(ge=0)
     restored: bool
     truncated: bool
-    stop_reason: Literal["stable", "end_reached", "round_limit", "deadline", "detached", "error"]
+    stop_reason: Literal[
+        "stable", "end_reached", "round_limit", "max_elements", "deadline", "detached", "error"
+    ]
 
 
 class SnapshotError(BaseModel):
@@ -219,8 +241,9 @@ class FrameSnapshot(BaseModel):
     scroll_results: list[ScrollResult]
     errors: list[SnapshotError]
     truncated: bool
-    stop_reason: str | None
+    stop_reason: FrameStopReason | None
     redaction_count: int = Field(ge=0)
+    redaction_categories: list[str]
 
 
 class SourceSnapshot(BaseModel):
@@ -243,6 +266,7 @@ class SnapshotStatistics(BaseModel):
     element_count: int = Field(ge=0)
     scroll_container_count: int = Field(ge=0)
     redaction_count: int = Field(ge=0)
+    redaction_categories: list[str]
     duration_ms: int = Field(ge=0)
 ```
 
@@ -289,6 +313,11 @@ git commit -m "feat: define snapshot data contract"
 - Produces: `Redactor.redact_mapping(values: Mapping[str, str]) -> tuple[dict[str, str], RedactionSummary]`.
 - Produces: `Redactor.redact_url(value: str) -> RedactionResult`.
 - Produces: `Redactor.redact_error(value: str) -> RedactionResult`.
+- Produces: `CustomRedactionRule(name: str, category: str, pattern: str)`.
+- `Redactor(custom_rules=...)` accepts at most 32 trusted, deterministically sorted rules; patterns
+  are at most 512 characters and compile during initialization. Rule names/categories are safe
+  non-empty identifiers, built-in overrides and replacement templates are forbidden, and no
+  regex worst-case runtime bound is claimed.
 
 - [ ] **Step 1: Write failing redaction tests**
 
@@ -553,7 +582,9 @@ class RawScrollResult:
     discovered_elements: int
     restored: bool
     truncated: bool
-    stop_reason: Literal["stable", "end_reached", "round_limit", "deadline", "detached", "error"]
+    stop_reason: Literal[
+        "stable", "end_reached", "round_limit", "max_elements", "deadline", "detached", "error"
+    ]
 
 
 @dataclass(slots=True)
@@ -570,7 +601,7 @@ class RawFrameObservation:
     scroll_results: list[RawScrollResult]
     errors: list[RawErrorObservation]
     truncated: bool
-    stop_reason: str | None
+    stop_reason: FrameStopReason | None
 
 
 @dataclass(slots=True)
@@ -625,7 +656,7 @@ git commit -m "feat: collect initial frame observations"
 - Consumes: Playwright `Frame`, `SnapshotLimits`, and remaining deadline.
 - Produces: `discover_scroll_containers(frame: Frame, limit: int) -> list[ScrollContainer]`.
 - Produces: `scroll_container(frame: Frame, container: ScrollContainer, max_rounds: int, deadline: float) -> RawScrollResult`.
-- Produces: `collect_with_scrolling(frame: Frame, limits: SnapshotLimits, deadline: float) -> tuple[list[RawElementObservation], list[RawScrollResult]]`.
+- Produces: `collect_with_scrolling(frame: Frame, limits: SnapshotLimits, deadline: float) -> RawScrollingObservation`.
 - Produces test helpers in `test_scrolling.py`:
   `collect_fixture(url: str, max_scroll_rounds_per_container: int) -> RawPageObservation`,
   `all_elements(observation: RawPageObservation) -> list[RawElementObservation]`, and
@@ -662,7 +693,9 @@ Expected: import failure for `scrolling`.
 
 Discover visible elements whose `scrollHeight > clientHeight + 1`, whose computed overflow permits
 scrolling, and that have a non-zero bounding box. Include the document scrolling element as container
-zero. Assign stable IDs from frame traversal index plus discovery index.
+zero. Request one extra discovery item and return `has_more`; an omitted container, including at a
+configured limit of zero, marks the owning Frame `partial/truncated/max_scroll_containers`. Assign
+stable IDs from frame traversal index plus discovery index.
 
 For each container:
 
@@ -756,6 +789,8 @@ truncated = any(frame.truncated for frame in frames)
 
 Navigation failure, missing browser, or inability to construct a valid root frame raises
 `CollectionFailedError`; child frame and nested container failures remain recoverable.
+Validation failures while constructing page errors, source, page, statistics, or the final document
+also map to `CollectionFailedError`; the per-child Frame recovery boundary remains inside it.
 
 `FakeSource` returns real raw dataclasses rather than mocks. Its one-failure variant returns a
 completed root plus a failed child; its text variant returns one completed root containing the exact

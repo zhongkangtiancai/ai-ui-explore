@@ -4,7 +4,32 @@ from datetime import datetime, timedelta
 from typing import Literal, Self, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+FrameStopReason = Literal[
+    "max_frames",
+    "max_scroll_containers",
+    "max_elements",
+    "max_text_chars",
+    "round_limit",
+    "deadline",
+    "detached",
+    "error",
+]
+
+_TRUNCATING_FRAME_STOP_REASONS = frozenset(
+    {
+        "max_frames",
+        "max_scroll_containers",
+        "max_elements",
+        "max_text_chars",
+        "round_limit",
+        "deadline",
+    }
+)
+_TRUNCATING_SCROLL_STOP_REASONS = frozenset(
+    {"round_limit", "max_elements", "deadline"}
+)
 
 
 class SnapshotLimits(BaseModel):
@@ -74,6 +99,15 @@ class ScrollResult(BaseModel):
         "error",
     ]
 
+    @model_validator(mode="after")
+    def validate_truncation(self) -> Self:
+        if (
+            self.stop_reason in _TRUNCATING_SCROLL_STOP_REASONS
+            and not self.truncated
+        ):
+            raise ValueError("budget and deadline scroll stops require truncation")
+        return self
+
 
 class SnapshotError(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -106,8 +140,37 @@ class FrameSnapshot(BaseModel):
     scroll_results: list[ScrollResult]
     errors: list[SnapshotError]
     truncated: bool
-    stop_reason: str | None
+    stop_reason: FrameStopReason | None
     redaction_count: int = Field(ge=0)
+    redaction_categories: list[str]
+
+    @field_validator("redaction_categories")
+    @classmethod
+    def normalize_redaction_categories(cls, value: list[str]) -> list[str]:
+        return sorted(set(value))
+
+    @model_validator(mode="after")
+    def validate_status(self) -> Self:
+        has_incomplete_scroll = any(
+            result.stop_reason not in {"stable", "end_reached"}
+            or result.truncated
+            for result in self.scroll_results
+        )
+        if self.status == "completed" and (
+            self.truncated
+            or self.errors
+            or self.stop_reason is not None
+            or has_incomplete_scroll
+        ):
+            raise ValueError(
+                "completed frames cannot contain errors, truncation, or a stop reason"
+            )
+        if (
+            self.stop_reason in _TRUNCATING_FRAME_STOP_REASONS
+            and not self.truncated
+        ):
+            raise ValueError("budget and deadline stop reasons require truncation")
+        return self
 
 
 class SourceSnapshot(BaseModel):
@@ -136,7 +199,13 @@ class SnapshotStatistics(BaseModel):
     element_count: int = Field(ge=0)
     scroll_container_count: int = Field(ge=0)
     redaction_count: int = Field(ge=0)
+    redaction_categories: list[str]
     duration_ms: int = Field(ge=0)
+
+    @field_validator("redaction_categories")
+    @classmethod
+    def normalize_redaction_categories(cls, value: list[str]) -> list[str]:
+        return sorted(set(value))
 
 
 class SnapshotDocument(BaseModel):

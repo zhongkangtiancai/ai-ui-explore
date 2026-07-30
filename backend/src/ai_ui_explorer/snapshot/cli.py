@@ -30,13 +30,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = _SafeArgumentParser(description="Collect a structured page snapshot.")
     parser.add_argument("--url", required=True, type=_http_url)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--timeout-ms", type=int)
-    parser.add_argument("--max-frames", type=int)
-    parser.add_argument("--max-scroll-containers-per-frame", type=int)
-    parser.add_argument("--max-scroll-rounds-per-container", type=int)
-    parser.add_argument("--max-elements", type=int)
-    parser.add_argument("--max-text-chars", type=int)
-    parser.add_argument("--max-json-bytes", type=int)
+    parser.add_argument("--timeout-ms", type=_bounded_int(1_000, 600_000))
+    parser.add_argument("--max-frames", type=_bounded_int(1, 500))
+    parser.add_argument(
+        "--max-scroll-containers-per-frame",
+        type=_bounded_int(0, 200),
+    )
+    parser.add_argument(
+        "--max-scroll-rounds-per-container",
+        type=_bounded_int(0, 500),
+    )
+    parser.add_argument("--max-elements", type=_bounded_int(1, 100_000))
+    parser.add_argument("--max-text-chars", type=_bounded_int(0, 10_000))
+    parser.add_argument(
+        "--max-json-bytes",
+        type=_bounded_int(64 * 1024, 100 * 1024 * 1024),
+    )
     parser.add_argument("--headed", action="store_true")
     return parser
 
@@ -84,6 +93,21 @@ def _http_url(value: str) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise argparse.ArgumentTypeError("URL must use HTTP or HTTPS")
     return value
+
+
+def _bounded_int(minimum: int, maximum: int) -> Callable[[str], int]:
+    """Build a safe argparse converter for one inclusive integer range."""
+
+    def parse(value: str) -> int:
+        try:
+            parsed = int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError("expected an integer") from exc
+        if not minimum <= parsed <= maximum:
+            raise argparse.ArgumentTypeError("integer is outside the allowed range")
+        return parsed
+
+    return parse
 
 
 def _limits_from_arguments(arguments: argparse.Namespace) -> SnapshotLimits:

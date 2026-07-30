@@ -50,6 +50,35 @@ def test_compaction_removes_highest_element_indexes_first() -> None:
     assert compacted.statistics.element_count == len(indexes)
 
 
+def test_compaction_preserves_redaction_audit_categories() -> None:
+    snapshot = _with_output_limit(
+        make_oversized_snapshot(max_json_bytes=65_536),
+        65_536,
+    )
+    frame = snapshot.frames[0].model_copy(
+        update={
+            "redaction_count": 1,
+            "redaction_categories": ["CASE_REFERENCE"],
+        }
+    )
+    snapshot = snapshot.model_copy(
+        update={
+            "frames": [frame],
+            "statistics": snapshot.statistics.model_copy(
+                update={
+                    "redaction_count": 1,
+                    "redaction_categories": ["CASE_REFERENCE"],
+                }
+            ),
+        }
+    )
+
+    compacted = compact_snapshot(snapshot)
+
+    assert compacted.frames[0].redaction_categories == ["CASE_REFERENCE"]
+    assert compacted.statistics.redaction_categories == ["CASE_REFERENCE"]
+
+
 def test_compaction_fails_when_required_contract_and_error_cannot_fit() -> None:
     """Fields outside the permitted compaction scope produce an explicit failure."""
     snapshot = make_snapshot(

@@ -55,6 +55,7 @@ def make_frame(**overrides: Any) -> FrameSnapshot:
         "truncated": False,
         "stop_reason": None,
         "redaction_count": 0,
+        "redaction_categories": [],
     }
     data.update(overrides)
     return FrameSnapshot.model_validate(data)
@@ -80,6 +81,7 @@ def make_snapshot(**overrides: Any) -> SnapshotDocument:
             "element_count": 1,
             "scroll_container_count": 0,
             "redaction_count": 0,
+            "redaction_categories": [],
             "duration_ms": 1,
         },
         "page": {
@@ -97,6 +99,9 @@ def make_snapshot(**overrides: Any) -> SnapshotDocument:
 
 
 def make_oversized_snapshot(max_json_bytes: int) -> SnapshotDocument:
+    # Leave enough headroom for tests that subsequently replace the serialized
+    # max_json_bytes value with a shorter boundary value.
+    target_size = max_json_bytes + 1_024
     limits = SnapshotLimits(max_elements=100_000)
     elements = [make_element(text=_fixed_text(0))]
     frame = make_frame(elements=elements, text_summary=_fixed_text(0))
@@ -110,10 +115,11 @@ def make_oversized_snapshot(max_json_bytes: int) -> SnapshotDocument:
             "element_count": len(elements),
             "scroll_container_count": 0,
             "redaction_count": 0,
+            "redaction_categories": [],
             "duration_ms": 1,
         },
     )
-    while len(snapshot.model_dump_json().encode("utf-8")) <= max_json_bytes:
+    while len(snapshot.model_dump_json().encode("utf-8")) <= target_size:
         traversal_index = len(elements)
         elements.append(
             make_element(
@@ -133,6 +139,7 @@ def make_oversized_snapshot(max_json_bytes: int) -> SnapshotDocument:
                 "element_count": len(elements),
                 "scroll_container_count": 0,
                 "redaction_count": 0,
+                "redaction_categories": [],
                 "duration_ms": 1,
             },
         )

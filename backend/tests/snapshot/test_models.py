@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from ai_ui_explorer.snapshot.models import (
     Bounds,
+    ScrollResult,
     SnapshotDocument,
     SnapshotError,
     SnapshotLimits,
@@ -97,6 +98,68 @@ def test_snapshot_rejects_completed_status_when_a_frame_is_incomplete(
         make_snapshot(frames=[make_frame(**frame_overrides)])
 
 
+@pytest.mark.parametrize(
+    "stop_reason",
+    [
+        "max_frames",
+        "max_scroll_containers",
+        "max_elements",
+        "max_text_chars",
+        "round_limit",
+        "deadline",
+        "detached",
+        "error",
+    ],
+)
+def test_frame_rejects_completed_status_with_an_incomplete_stop_reason(
+    stop_reason: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        make_frame(stop_reason=stop_reason)
+
+
+@pytest.mark.parametrize(
+    "stop_reason",
+    ["round_limit", "max_elements", "deadline"],
+)
+def test_scroll_result_rejects_budget_stop_without_truncation(
+    stop_reason: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        ScrollResult(
+            container_id="root-scroll-0",
+            label="document",
+            rounds=1,
+            discovered_elements=0,
+            restored=True,
+            truncated=False,
+            stop_reason=stop_reason,
+        )
+
+
+@pytest.mark.parametrize(
+    "stop_reason",
+    ["round_limit", "max_elements", "deadline", "detached", "error"],
+)
+def test_frame_rejects_completed_status_with_incomplete_scroll_reason(
+    stop_reason: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        make_frame(
+            scroll_results=[
+                {
+                    "container_id": "root-scroll-0",
+                    "label": "document",
+                    "rounds": 1,
+                    "discovered_elements": 0,
+                    "restored": True,
+                    "truncated": False,
+                    "stop_reason": stop_reason,
+                }
+            ]
+        )
+
+
 def test_snapshot_error_rejects_non_utc_timestamps() -> None:
     with pytest.raises(ValidationError):
         SnapshotError(
@@ -157,6 +220,66 @@ def test_snapshot_schema_is_versioned() -> None:
 
     assert schema["properties"]["schema_version"]["default"] == "1.0"
     assert schema["properties"]["status"]["enum"] == ["completed", "partial"]
+
+
+def test_snapshot_accepts_sorted_unique_redaction_categories() -> None:
+    frame = make_frame(redaction_categories=["EMAIL", "TOKEN"])
+    snapshot = make_snapshot(
+        frames=[frame],
+        statistics={
+            "frame_count": 1,
+            "completed_frame_count": 1,
+            "failed_frame_count": 0,
+            "element_count": 1,
+            "scroll_container_count": 0,
+            "redaction_count": 2,
+            "redaction_categories": ["EMAIL", "TOKEN"],
+            "duration_ms": 1,
+        },
+    )
+
+    assert snapshot.frames[0].redaction_categories == ["EMAIL", "TOKEN"]
+    assert snapshot.statistics.redaction_categories == ["EMAIL", "TOKEN"]
+
+
+def test_snapshot_normalizes_redaction_categories_to_sorted_unique_values() -> None:
+    frame = make_frame(redaction_categories=["TOKEN", "EMAIL", "TOKEN"])
+    snapshot = make_snapshot(
+        frames=[frame],
+        statistics={
+            "frame_count": 1,
+            "completed_frame_count": 1,
+            "failed_frame_count": 0,
+            "element_count": 1,
+            "scroll_container_count": 0,
+            "redaction_count": 3,
+            "redaction_categories": ["TOKEN", "EMAIL", "TOKEN"],
+            "duration_ms": 1,
+        },
+    )
+
+    assert snapshot.frames[0].redaction_categories == ["EMAIL", "TOKEN"]
+    assert snapshot.statistics.redaction_categories == ["EMAIL", "TOKEN"]
+
+
+def test_snapshot_normalizes_tuple_redaction_categories_after_validation() -> None:
+    frame = make_frame(redaction_categories=("TOKEN", "EMAIL", "TOKEN"))
+    snapshot = make_snapshot(
+        frames=[frame],
+        statistics={
+            "frame_count": 1,
+            "completed_frame_count": 1,
+            "failed_frame_count": 0,
+            "element_count": 1,
+            "scroll_container_count": 0,
+            "redaction_count": 3,
+            "redaction_categories": ("TOKEN", "EMAIL", "TOKEN"),
+            "duration_ms": 1,
+        },
+    )
+
+    assert snapshot.frames[0].redaction_categories == ["EMAIL", "TOKEN"]
+    assert snapshot.statistics.redaction_categories == ["EMAIL", "TOKEN"]
 
 
 def test_oversized_factory_exceeds_the_requested_size_with_ordered_elements() -> None:

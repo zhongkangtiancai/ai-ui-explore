@@ -71,16 +71,42 @@ class SnapshotCollector:
         if root is None:
             raise CollectionFailedError("No valid root frame was available for the snapshot.")
 
+        try:
+            return self._build_snapshot(
+                url=url,
+                limits=limits,
+                raw_page=raw_page,
+                root=root,
+                started_at=started_at,
+                started_tick=started_tick,
+            )
+        except CollectionFailedError:
+            raise
+        except (ValidationError, ValueError) as exc:
+            raise CollectionFailedError(
+                "A valid top-level snapshot could not be formed."
+            ) from exc
+
+    def _build_snapshot(
+        self,
+        *,
+        url: str,
+        limits: SnapshotLimits,
+        raw_page: RawPageObservation,
+        root: RawFrameObservation,
+        started_at: datetime,
+        started_tick: float,
+    ) -> SnapshotDocument:
         sanitizer = _Sanitizer(self._redactor)
         page_errors = [_snapshot_error(error, sanitizer) for error in raw_page.errors]
         frames: list[FrameSnapshot] = []
         errors = list(page_errors)
         for raw_frame in sorted(raw_page.frames, key=lambda frame: frame.traversal_index):
-            redaction_count_before_frame = sanitizer.count
+            checkpoint = sanitizer.checkpoint()
             try:
                 frame, frame_errors = _frame_snapshot(raw_frame, sanitizer)
             except (ValidationError, ValueError) as exc:
-                sanitizer.count = redaction_count_before_frame
+                sanitizer.restore(checkpoint)
                 if raw_frame is root:
                     raise CollectionFailedError(
                         "The root frame could not be modeled as a snapshot."
@@ -88,7 +114,7 @@ class SnapshotCollector:
                 frame, frame_errors = _failed_frame_snapshot(
                     raw_frame,
                     sanitizer,
-                    redaction_count_before_frame,
+                    checkpoint,
                 )
             frames.append(frame)
             errors.extend(frame_errors)
@@ -108,32 +134,28 @@ class SnapshotCollector:
             viewport_height=raw_page.viewport_height,
             language=_optional_text(raw_page.language, sanitizer),
         )
-        try:
-            return SnapshotDocument(
-                snapshot_id=self._uuid_factory(),
-                status="partial" if partial else "completed",
-                started_at=started_at,
-                completed_at=completed_at,
-                source=source,
-                limits=limits,
-                statistics=SnapshotStatistics(
-                    frame_count=len(frames),
-                    completed_frame_count=sum(frame.status == "completed" for frame in frames),
-                    failed_frame_count=sum(frame.status == "failed" for frame in frames),
-                    element_count=sum(len(frame.elements) for frame in frames),
-                    scroll_container_count=sum(len(frame.scroll_results) for frame in frames),
-                    redaction_count=sanitizer.count,
-                    duration_ms=duration_ms,
-                ),
-                page=page,
-                frames=frames,
-                errors=errors,
-                truncated=truncated,
-            )
-        except ValidationError as exc:
-            raise CollectionFailedError(
-                "A valid top-level snapshot could not be formed."
-            ) from exc
+        return SnapshotDocument(
+            snapshot_id=self._uuid_factory(),
+            status="partial" if partial else "completed",
+            started_at=started_at,
+            completed_at=completed_at,
+            source=source,
+            limits=limits,
+            statistics=SnapshotStatistics(
+                frame_count=len(frames),
+                completed_frame_count=sum(frame.status == "completed" for frame in frames),
+                failed_frame_count=sum(frame.status == "failed" for frame in frames),
+                element_count=sum(len(frame.elements) for frame in frames),
+                scroll_container_count=sum(len(frame.scroll_results) for frame in frames),
+                redaction_count=sanitizer.count,
+                redaction_categories=sorted(sanitizer.categories),
+                duration_ms=duration_ms,
+            ),
+            page=page,
+            frames=frames,
+            errors=errors,
+            truncated=truncated,
+        )
 
 
 def _find_valid_root(raw_page: RawPageObservation) -> RawFrameObservation | None:
@@ -148,7 +170,7 @@ def _frame_snapshot(
     raw_frame: RawFrameObservation,
     sanitizer: _Sanitizer,
 ) -> tuple[FrameSnapshot, list[SnapshotError]]:
-    redaction_count_before_frame = sanitizer.count
+    checkpoint = sanitizer.checkpoint()
     errors = [_snapshot_error(error, sanitizer) for error in raw_frame.errors]
     if raw_frame.status != "completed" and not errors:
         errors.append(
@@ -193,8 +215,9 @@ def _frame_snapshot(
             scroll_results=scroll_results,
             errors=errors,
             truncated=raw_frame.truncated,
-            stop_reason=_optional_text(raw_frame.stop_reason, sanitizer),
-            redaction_count=sanitizer.count - redaction_count_before_frame,
+            stop_reason=raw_frame.stop_reason,
+            redaction_count=sanitizer.count - checkpoint[0],
+            redaction_categories=sorted(sanitizer.categories_since(checkpoint)),
         ),
         errors,
     )
@@ -203,7 +226,7 @@ def _frame_snapshot(
 def _failed_frame_snapshot(
     raw_frame: RawFrameObservation,
     sanitizer: _Sanitizer,
-    redaction_count_before_frame: int,
+    checkpoint: tuple[int, int],
 ) -> tuple[FrameSnapshot, list[SnapshotError]]:
     error = SnapshotError(
         scope="frame",
@@ -226,7 +249,8 @@ def _failed_frame_snapshot(
         errors=[error],
         truncated=False,
         stop_reason="error",
-        redaction_count=sanitizer.count - redaction_count_before_frame,
+        redaction_count=sanitizer.count - checkpoint[0],
+        redaction_categories=sorted(sanitizer.categories_since(checkpoint)),
     )
     return frame, [error]
 
@@ -282,23 +306,51 @@ class _Sanitizer:
     def __init__(self, redactor: Redactor) -> None:
         self._redactor = redactor
         self.count = 0
+        self._category_events: list[frozenset[str]] = []
+
+    @property
+    def categories(self) -> frozenset[str]:
+        return frozenset(
+            category
+            for event in self._category_events
+            for category in event
+        )
+
+    def checkpoint(self) -> tuple[int, int]:
+        return self.count, len(self._category_events)
+
+    def restore(self, checkpoint: tuple[int, int]) -> None:
+        self.count = checkpoint[0]
+        del self._category_events[checkpoint[1]:]
+
+    def categories_since(self, checkpoint: tuple[int, int]) -> frozenset[str]:
+        return frozenset(
+            category
+            for event in self._category_events[checkpoint[1]:]
+            for category in event
+        )
+
+    def _record(self, count: int, categories: frozenset[str]) -> None:
+        self.count += count
+        if categories:
+            self._category_events.append(categories)
 
     def text(self, value: str) -> str:
         result = self._redactor.redact_text(value)
-        self.count += result.count
+        self._record(result.count, result.categories)
         return result.value
 
     def error(self, value: str) -> str:
         result = self._redactor.redact_error(value)
-        self.count += result.count
+        self._record(result.count, result.categories)
         return result.value
 
     def url(self, value: str) -> str:
         result = self._redactor.redact_url(value)
-        self.count += result.count
+        self._record(result.count, result.categories)
         return result.value
 
     def mapping(self, value: dict[str, str]) -> dict[str, str]:
         redacted, summary = self._redactor.redact_mapping(value)
-        self.count += summary.count
+        self._record(summary.count, summary.categories)
         return redacted

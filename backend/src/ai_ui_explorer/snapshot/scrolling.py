@@ -91,17 +91,21 @@ const discover = (root, request) => {
   const documentContainer = documentNode.scrollingElement || documentNode.documentElement;
   const nested = Array.from(documentNode.querySelectorAll("*"))
     .filter((element) => element !== documentContainer && visibleScrollable(element));
-  const discovered = [documentContainer, ...nested].slice(0, request.limit);
-  return discovered.map((element, index) => {
-    const containerId = `frame-${request.frameIndex}-scroll-${index}`;
-    containers.set(containerId, element);
-    return {
-      containerId,
-      label: index === 0 ? "document" : (element.id || `container-${index}`),
-      discoveryIndex: index,
-      ...metricsFor(element, request.maxElements),
-    };
-  });
+  const candidates = [documentContainer, ...nested].slice(0, request.limit + 1);
+  const discovered = candidates.slice(0, request.limit);
+  return {
+    hasMore: candidates.length > request.limit,
+    containers: discovered.map((element, index) => {
+      const containerId = `frame-${request.frameIndex}-scroll-${index}`;
+      containers.set(containerId, element);
+      return {
+        containerId,
+        label: index === 0 ? "document" : (element.id || `container-${index}`),
+        discoveryIndex: index,
+        ...metricsFor(element, request.maxElements),
+      };
+    }),
+  };
 };
 const act = (request) => {
   const element = containers.get(request.containerId);
@@ -121,7 +125,7 @@ const act = (request) => {
 const query = (root, selector) => {
   const request = JSON.parse(selector);
   const payload = request.operation === "discover"
-    ? { containers: discover(root, request) }
+    ? discover(root, request)
     : act(request);
   return carrierFor(root, payload);
 };
@@ -159,6 +163,7 @@ class _ContainerPayload(TypedDict):
 
 class _DiscoveryPayload(TypedDict):
     containers: list[_ContainerPayload]
+    hasMore: bool
 
 
 class _MetricsPayload(TypedDict, total=False):
@@ -179,34 +184,57 @@ class _CollectedElement:
 class _ElementBatch:
     elements: tuple[_CollectedElement, ...]
     truncated: bool
+    text_truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RawScrollingObservation:
+    elements: list[RawElementObservation]
+    scroll_results: list[RawScrollResult]
+    text_truncated: bool
+    container_limit_reached: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _ScrollContainerDiscovery:
+    containers: list[ScrollContainer]
+    has_more: bool
 
 
 def discover_scroll_containers(frame: Frame, limit: int) -> list[ScrollContainer]:
     """Discover scroll containers up to the configured per-frame limit."""
-    if limit <= 0:
-        return []
+    return _discover_scroll_containers(frame, limit).containers
+
+
+def _discover_scroll_containers(
+    frame: Frame,
+    limit: int,
+) -> _ScrollContainerDiscovery:
     payload = cast(
         _DiscoveryPayload,
         _carrier_request(
             frame,
             {
                 "operation": "discover",
-                "limit": limit,
+                "limit": max(limit, 0),
                 "frameIndex": _frame_traversal_index(frame),
             },
         ),
     )
-    return [
-        ScrollContainer(
-            container_id=item["containerId"],
-            label=item["label"],
-            discovery_index=item["discoveryIndex"],
-            original_scroll_top=item["scrollTop"],
-            client_height=item["clientHeight"],
-            scroll_height=item["scrollHeight"],
-        )
-        for item in payload["containers"]
-    ]
+    return _ScrollContainerDiscovery(
+        containers=[
+            ScrollContainer(
+                container_id=item["containerId"],
+                label=item["label"],
+                discovery_index=item["discoveryIndex"],
+                original_scroll_top=item["scrollTop"],
+                client_height=item["clientHeight"],
+                scroll_height=item["scrollHeight"],
+            )
+            for item in payload["containers"]
+        ],
+        has_more=payload["hasMore"],
+    )
 
 
 def scroll_container(
@@ -216,7 +244,7 @@ def scroll_container(
     deadline: float,
 ) -> RawScrollResult:
     """Scroll one container within the supplied round and deadline budgets."""
-    result, _ = _scroll_container_with_observations(
+    result, _, _ = _scroll_container_with_observations(
         frame=frame,
         container=container,
         max_rounds=max_rounds,
@@ -234,7 +262,7 @@ def collect_with_scrolling(
     frame: Frame,
     limits: SnapshotLimits,
     deadline: float,
-) -> tuple[list[RawElementObservation], list[RawScrollResult]]:
+) -> RawScrollingObservation:
     """Collect initial and newly revealed interactive elements."""
     _raise_deadline(deadline)
     frame.page.set_default_timeout(_remaining_milliseconds(deadline))
@@ -253,41 +281,61 @@ def collect_with_scrolling(
     scroll_results: list[RawScrollResult] = []
     remaining_elements = limits.max_elements - len(elements)
     if initial_batch.truncated or remaining_elements == 0:
-        return elements, [
-            _empty_result(
-                container_id=f"{frame_id}-scroll-0",
-                label="document",
-                stop_reason="max_elements",
-                truncated=True,
-            )
-        ]
+        return RawScrollingObservation(
+            elements=elements,
+            scroll_results=[
+                _empty_result(
+                    container_id=f"{frame_id}-scroll-0",
+                    label="document",
+                    stop_reason="max_elements",
+                    truncated=True,
+                )
+            ],
+            text_truncated=initial_batch.text_truncated,
+            container_limit_reached=False,
+        )
 
     try:
-        containers = discover_scroll_containers(
+        discovery = _discover_scroll_containers(
             frame,
             limits.max_scroll_containers_per_frame,
         )
     except (_DeadlineReached, PlaywrightTimeoutError):
-        return elements, [
-            _empty_result(
-                container_id=f"{frame_id}-scroll-0",
-                label="document",
-                stop_reason="deadline",
-                truncated=True,
-            )
-        ]
+        return RawScrollingObservation(
+            elements=elements,
+            scroll_results=[
+                _empty_result(
+                    container_id=f"{frame_id}-scroll-0",
+                    label="document",
+                    stop_reason="deadline",
+                    truncated=True,
+                )
+            ],
+            text_truncated=initial_batch.text_truncated,
+            container_limit_reached=False,
+        )
     except PlaywrightError:
-        return elements, [
-            _empty_result(
-                container_id=f"{frame_id}-scroll-0",
-                label="document",
-                stop_reason="error",
-                truncated=False,
-            )
-        ]
+        return RawScrollingObservation(
+            elements=elements,
+            scroll_results=[
+                _empty_result(
+                    container_id=f"{frame_id}-scroll-0",
+                    label="document",
+                    stop_reason="error",
+                    truncated=False,
+                )
+            ],
+            text_truncated=initial_batch.text_truncated,
+            container_limit_reached=False,
+        )
 
-    for container in containers:
-        result, discovered = _scroll_container_with_observations(
+    text_truncated = initial_batch.text_truncated
+    for container in discovery.containers:
+        (
+            result,
+            discovered,
+            container_text_truncated,
+        ) = _scroll_container_with_observations(
             frame=frame,
             container=container,
             max_rounds=limits.max_scroll_rounds_per_container,
@@ -302,9 +350,15 @@ def collect_with_scrolling(
             elements.append(replace(element, traversal_index=len(elements)))
         remaining_elements -= len(discovered)
         scroll_results.append(result)
+        text_truncated = text_truncated or container_text_truncated
         if result.stop_reason in {"deadline", "max_elements"}:
             break
-    return elements, scroll_results
+    return RawScrollingObservation(
+        elements=elements,
+        scroll_results=scroll_results,
+        text_truncated=text_truncated,
+        container_limit_reached=discovery.has_more,
+    )
 
 
 def _scroll_container_with_observations(
@@ -318,7 +372,7 @@ def _scroll_container_with_observations(
     emit_baseline_new: bool,
     max_elements: int,
     max_text_chars: int,
-) -> tuple[RawScrollResult, list[RawElementObservation]]:
+) -> tuple[RawScrollResult, list[RawElementObservation], bool]:
     rounds = 0
     stable_rounds = 0
     previous_height = container.scroll_height
@@ -334,6 +388,7 @@ def _scroll_container_with_observations(
     ] = "round_limit"
     truncated = max_rounds == 0
     restored = False
+    text_truncated = False
 
     try:
         frame.page.wait_for_timeout(min(100, _remaining_milliseconds(deadline)))
@@ -361,6 +416,7 @@ def _scroll_container_with_observations(
                     stop_reason=stop_reason,
                 ),
                 discovered,
+                text_truncated,
             )
         scoped_node_ids = set(baseline_metrics.get("descendantNodeIds", []))
         baseline_batch = _collect_elements(
@@ -369,6 +425,7 @@ def _scroll_container_with_observations(
             max_text_chars=max_text_chars,
             deadline=deadline,
         )
+        text_truncated = text_truncated or baseline_batch.text_truncated
         if emit_baseline_new:
             remaining_elements = _append_new_elements(
                 baseline_batch,
@@ -426,6 +483,7 @@ def _scroll_container_with_observations(
                 max_text_chars=max_text_chars,
                 deadline=deadline,
             )
+            text_truncated = text_truncated or current_batch.text_truncated
             remaining_elements = _append_new_elements(
                 current_batch,
                 known_node_ids=known_node_ids,
@@ -497,6 +555,7 @@ def _scroll_container_with_observations(
             stop_reason=stop_reason,
         ),
         discovered,
+        text_truncated,
     )
 
 
@@ -533,6 +592,7 @@ def _collect_elements(
             for index, payload in enumerate(elements_payload["observations"])
         ),
         truncated=elements_payload["truncated"],
+        text_truncated=elements_payload["textTruncated"],
     )
 
 

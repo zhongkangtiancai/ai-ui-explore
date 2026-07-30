@@ -1,9 +1,20 @@
 """Redact sensitive values before they enter the snapshot model."""
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from itertools import islice
+from re import _parser  # type: ignore[attr-defined]
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+@dataclass(frozen=True, slots=True)
+class CustomRedactionRule:
+    """Trusted administrator configuration for one structural regex rule."""
+
+    name: str
+    category: str
+    pattern: str
 
 
 @dataclass(frozen=True)
@@ -53,10 +64,107 @@ _BANK_CARD_PATTERN = re.compile(r"\b\d{16,19}\b")
 _MAINLAND_MOBILE_PATTERN = re.compile(r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d{9}(?!\d)")
 _EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _CONTENT_BEARING_SCHEMES = frozenset({"data", "javascript", "vbscript"})
+_MAX_CUSTOM_RULES = 32
+_MAX_CUSTOM_PATTERN_LENGTH = 512
+_SAFE_RULE_NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}")
+_SAFE_CATEGORY_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+_BUILT_IN_RULE_NAMES = frozenset(
+    {
+        *_SENSITIVE_KEY_CATEGORIES.keys(),
+        "authorization",
+        "sensitive-key",
+        "bearer-token",
+        "chinese-id",
+        "bank-card",
+        "mainland-mobile",
+        "email",
+        "url",
+        "url-userinfo",
+    }
+)
+_BUILT_IN_CATEGORIES = frozenset(
+    {
+        *_SENSITIVE_KEY_CATEGORIES.values(),
+        "CHINESE_ID",
+        "BANK_CARD",
+        "MOBILE",
+        "EMAIL",
+        "URL",
+        "URL_USERINFO",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _CompiledCustomRule:
+    name: str
+    category: str
+    pattern: re.Pattern[str]
 
 
 class Redactor:
     """Apply deterministic, category-aware redaction rules."""
+
+    def __init__(
+        self,
+        *,
+        custom_rules: Iterable[CustomRedactionRule] = (),
+    ) -> None:
+        supplied_rules = tuple(islice(custom_rules, _MAX_CUSTOM_RULES + 1))
+        if len(supplied_rules) > _MAX_CUSTOM_RULES:
+            raise ValueError(f"custom redaction rules are limited to {_MAX_CUSTOM_RULES}")
+
+        compiled_rules: list[_CompiledCustomRule] = []
+        custom_names: set[str] = set()
+        for rule in supplied_rules:
+            if not isinstance(rule, CustomRedactionRule):
+                raise ValueError("custom redaction rules must use CustomRedactionRule")
+            if not all(
+                isinstance(value, str)
+                for value in (rule.name, rule.category, rule.pattern)
+            ):
+                raise ValueError("custom rule name, category, and pattern must be strings")
+            normalized_name = rule.name.lower()
+            if _SAFE_RULE_NAME_PATTERN.fullmatch(rule.name) is None:
+                raise ValueError("custom rule name must be a non-empty safe identifier")
+            if _SAFE_CATEGORY_PATTERN.fullmatch(rule.category) is None:
+                raise ValueError("custom rule category must be a non-empty safe identifier")
+            if normalized_name in _BUILT_IN_RULE_NAMES:
+                raise ValueError("custom rule name cannot override a built-in rule")
+            if rule.category in _BUILT_IN_CATEGORIES:
+                raise ValueError("custom rule category cannot override a built-in category")
+            if normalized_name in custom_names:
+                raise ValueError("custom rule names must be unique")
+            if not rule.pattern:
+                raise ValueError("custom rule pattern must not be empty")
+            if len(rule.pattern) > _MAX_CUSTOM_PATTERN_LENGTH:
+                raise ValueError(
+                    "custom rule pattern exceeds the configured length limit"
+                )
+            try:
+                compiled_pattern = re.compile(rule.pattern)
+            except re.error as exc:
+                raise ValueError("custom rule pattern is not a valid regex") from exc
+            minimum_width, _ = _parser.parse(rule.pattern, 0).getwidth()
+            if minimum_width == 0:
+                raise ValueError(
+                    "custom rule pattern must consume at least one character"
+                )
+            custom_names.add(normalized_name)
+            compiled_rules.append(
+                _CompiledCustomRule(
+                    name=rule.name,
+                    category=rule.category,
+                    pattern=compiled_pattern,
+                )
+            )
+
+        self._custom_rules = tuple(
+            sorted(
+                compiled_rules,
+                key=lambda rule: (rule.name.lower(), rule.category, rule.pattern.pattern),
+            )
+        )
 
     def redact_text(self, value: str) -> RedactionResult:
         categories: set[str] = set()
@@ -90,6 +198,15 @@ class Redactor:
             if replacements:
                 count += replacements
                 categories.add(category)
+
+        for rule in self._custom_rules:
+            redacted, replacements = rule.pattern.subn(
+                _marker(rule.category),
+                redacted,
+            )
+            if replacements:
+                count += replacements
+                categories.add(rule.category)
 
         return RedactionResult(redacted, count, frozenset(categories))
 

@@ -1,6 +1,9 @@
+from dataclasses import fields
+from typing import cast
+
 import pytest
 
-from ai_ui_explorer.snapshot.redaction import Redactor
+from ai_ui_explorer.snapshot.redaction import CustomRedactionRule, Redactor
 
 
 @pytest.mark.parametrize(
@@ -220,3 +223,122 @@ def test_redactor_consumes_escaped_single_quotes_in_error_sensitive_values() -> 
     assert result.categories == frozenset({"SECRET"})
     has_unredacted_suffix = "suffix" in result.value
     assert not has_unredacted_suffix
+
+
+def test_redactor_accepts_structural_custom_rule_without_a_secret_value() -> None:
+    rule = CustomRedactionRule(
+        name="case-reference",
+        category="CASE_REFERENCE",
+        pattern=r"\bCASE-\d{4}\b",
+    )
+
+    result = Redactor(custom_rules=[rule]).redact_text("reference CASE-4821")
+
+    assert [field.name for field in fields(CustomRedactionRule)] == [
+        "name",
+        "category",
+        "pattern",
+    ]
+    assert result.value == "reference [REDACTED:CASE_REFERENCE]"
+    assert result.count == 1
+    assert result.categories == frozenset({"CASE_REFERENCE"})
+    assert "4821" not in result.value
+
+
+def test_custom_rule_order_is_deterministic() -> None:
+    specific = CustomRedactionRule(
+        name="a-specific-reference",
+        category="SPECIFIC_REFERENCE",
+        pattern=r"\bREF-\d+\b",
+    )
+    general = CustomRedactionRule(
+        name="z-general-reference",
+        category="GENERAL_REFERENCE",
+        pattern=r"\bREF-[A-Z0-9]+\b",
+    )
+
+    first = Redactor(custom_rules=[general, specific]).redact_text("REF-4821")
+    second = Redactor(custom_rules=[specific, general]).redact_text("REF-4821")
+
+    assert first == second
+    assert first.value == "[REDACTED:SPECIFIC_REFERENCE]"
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        [
+            CustomRedactionRule(
+                name=f"rule-{index}",
+                category=f"CUSTOM_{index}",
+                pattern=rf"\bCUSTOM-{index}\b",
+            )
+            for index in range(33)
+        ],
+        [
+            CustomRedactionRule(
+                name="oversized-pattern",
+                category="CUSTOM",
+                pattern="x" * 513,
+            )
+        ],
+        [CustomRedactionRule(name="", category="CUSTOM", pattern=r"CUSTOM-\d+")],
+        [CustomRedactionRule(name="unsafe name", category="CUSTOM", pattern=r"CUSTOM-\d+")],
+        [CustomRedactionRule(name="custom", category="unsafe-category", pattern=r"CUSTOM-\d+")],
+        [CustomRedactionRule(name="custom", category="CUSTOM", pattern="(")],
+        [CustomRedactionRule(name="custom", category="TOKEN", pattern=r"CUSTOM-\d+")],
+        [CustomRedactionRule(name="email", category="CUSTOM", pattern=r"CUSTOM-\d+")],
+        [CustomRedactionRule(name="password", category="CUSTOM", pattern=r"CUSTOM-\d+")],
+        [
+            CustomRedactionRule(name="duplicate", category="CUSTOM_A", pattern=r"A-\d+"),
+            CustomRedactionRule(name="duplicate", category="CUSTOM_B", pattern=r"B-\d+"),
+        ],
+        [CustomRedactionRule(name="empty-pattern", category="CUSTOM", pattern="")],
+        [CustomRedactionRule(name="empty-match", category="CUSTOM", pattern=r".*?")],
+        [CustomRedactionRule(name="zero-width", category="CUSTOM", pattern=r"(?=.)")],
+        [
+            CustomRedactionRule(
+                name=cast(str, 123),
+                category="CUSTOM",
+                pattern=r"CUSTOM-\d+",
+            )
+        ],
+        [
+            CustomRedactionRule(
+                name="custom",
+                category=cast(str, 123),
+                pattern=r"CUSTOM-\d+",
+            )
+        ],
+        [
+            CustomRedactionRule(
+                name="custom",
+                category="CUSTOM",
+                pattern=cast(str, 123),
+            )
+        ],
+    ],
+    ids=[
+        "too-many-rules",
+        "oversized-pattern",
+        "empty-name",
+        "unsafe-name",
+        "unsafe-category",
+        "invalid-regex",
+        "built-in-category",
+        "built-in-name",
+        "built-in-key-rule-name",
+        "duplicate-name",
+        "empty-pattern",
+        "empty-match",
+        "zero-width-match",
+        "non-string-name",
+        "non-string-category",
+        "non-string-pattern",
+    ],
+)
+def test_redactor_rejects_invalid_or_oversized_custom_configuration(
+    rules: list[CustomRedactionRule],
+) -> None:
+    with pytest.raises(ValueError):
+        Redactor(custom_rules=rules)

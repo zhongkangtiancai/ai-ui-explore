@@ -4,6 +4,7 @@ import pytest
 
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
+from ai_ui_explorer.snapshot.redaction import CustomRedactionRule, Redactor
 
 from .fakes import FakeSource
 
@@ -39,8 +40,42 @@ def test_collector_tracks_redactions_per_frame_and_globally() -> None:
     ).collect("https://example.test", SnapshotLimits())
 
     assert snapshot.frames[0].redaction_count == 2
+    assert snapshot.frames[0].redaction_categories == ["TOKEN"]
     assert snapshot.frames[1].redaction_count == 0
+    assert snapshot.frames[1].redaction_categories == []
     assert snapshot.statistics.redaction_count == 2
+    assert snapshot.statistics.redaction_categories == ["TOKEN"]
+
+
+def test_collector_aggregates_redaction_categories_in_deterministic_order() -> None:
+    snapshot = SnapshotCollector(
+        source=FakeSource.with_text(
+            "password=fixture-password email fixture@example.test"
+        )
+    ).collect("https://example.test", SnapshotLimits())
+
+    assert snapshot.frames[0].redaction_categories == ["EMAIL", "PASSWORD"]
+    assert snapshot.statistics.redaction_categories == ["EMAIL", "PASSWORD"]
+
+
+def test_collector_persists_custom_redaction_category() -> None:
+    redactor = Redactor(
+        custom_rules=[
+            CustomRedactionRule(
+                name="case-reference",
+                category="CASE_REFERENCE",
+                pattern=r"\bCASE-\d{4}\b",
+            )
+        ]
+    )
+    snapshot = SnapshotCollector(
+        source=FakeSource.with_text("reference CASE-4821"),
+        redactor=redactor,
+    ).collect("https://example.test", SnapshotLimits())
+
+    assert "CASE-4821" not in snapshot.model_dump_json()
+    assert snapshot.frames[0].redaction_categories == ["CASE_REFERENCE"]
+    assert snapshot.statistics.redaction_categories == ["CASE_REFERENCE"]
 
 
 def test_collector_rejects_navigation_after_global_deadline() -> None:
@@ -104,4 +139,26 @@ def test_collector_keeps_valid_root_when_child_frame_modeling_fails() -> None:
     assert snapshot.frames[1].errors[0].recoverable is True
     assert snapshot.frames[1].redaction_count == 0
     assert snapshot.statistics.redaction_count == 2
+    assert snapshot.statistics.redaction_categories == ["TOKEN"]
+    assert "EMAIL" not in snapshot.statistics.redaction_categories
     assert snapshot.errors[-1].recoverable is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        FakeSource.with_invalid_viewport(),
+        FakeSource.with_invalid_page_error_timestamp(),
+    ],
+    ids=["invalid-viewport", "invalid-page-error-timestamp"],
+)
+def test_collector_wraps_top_level_validation_failures(
+    source: FakeSource,
+) -> None:
+    with pytest.raises(CollectionFailedError) as exc_info:
+        SnapshotCollector(source=source).collect(
+            "https://example.test",
+            SnapshotLimits(),
+        )
+
+    assert exc_info.value.__cause__ is not None

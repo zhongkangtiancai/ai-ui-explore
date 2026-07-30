@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urljoin
 
 import pytest
 
 from ai_ui_explorer.snapshot import browser as browser_module
 from ai_ui_explorer.snapshot.browser import BrowserUnavailableError, PlaywrightBrowserSource
+from ai_ui_explorer.snapshot.collector import SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
 
 from . import conftest as fixture_support
@@ -108,6 +110,46 @@ def test_text_limit_marks_frame_partial_and_truncated(primary_url: str) -> None:
     assert main_frame.status == "partial"
     assert main_frame.truncated is True
     assert main_frame.stop_reason == "max_text_chars"
+
+
+def test_frame_limit_marks_root_and_document_partial_and_truncated(
+    primary_url: str,
+) -> None:
+    """Omitted Frames must be represented as truncation, not only a page error."""
+    snapshot = SnapshotCollector(source=PlaywrightBrowserSource(headless=True)).collect(
+        f"{primary_url}&scrollFixture=identity",
+        SnapshotLimits(
+            max_frames=1,
+            max_scroll_rounds_per_container=10,
+        ),
+    )
+
+    assert len(snapshot.frames) == 1
+    assert snapshot.status == "partial"
+    assert snapshot.truncated is True
+    assert snapshot.frames[0].status == "partial"
+    assert snapshot.frames[0].truncated is True
+    assert snapshot.frames[0].stop_reason == "max_frames"
+    assert "max_frames_reached" in {error.error_code for error in snapshot.errors}
+
+
+def test_element_carrier_text_clipping_marks_frame_and_document_truncated(
+    primary_url: str,
+) -> None:
+    """A clipped aria-label/attribute must not be confused with element exhaustion."""
+    snapshot = SnapshotCollector(source=PlaywrightBrowserSource(headless=True)).collect(
+        urljoin(primary_url, "/carrier-clipping.html"),
+        SnapshotLimits(max_text_chars=10),
+    )
+
+    frame = snapshot.frames[0]
+    assert frame.text_summary == ""
+    assert frame.elements[0].accessible_name == "用于验证元素字段裁剪"
+    assert frame.status == "partial"
+    assert frame.truncated is True
+    assert frame.stop_reason == "max_text_chars"
+    assert snapshot.status == "partial"
+    assert snapshot.truncated is True
 
 
 def test_frame_crossing_global_deadline_cannot_be_completed(primary_url: str) -> None:

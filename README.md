@@ -79,8 +79,10 @@ bootstrap 还会将匹配当前 Playwright 版本的 Chromium 安装到项目自
 
 - `0`：生成完整快照，没有局部错误或截断。
 - `1`：无法生成有效快照。
-- `2`：已生成可用快照，但存在局部失败或达到预算后的截断。
-- 参数格式或必填参数错误由 CLI 参数解析器返回用法错误。
+- `2`（部分采集）：已生成可用的 `<output>\snapshot.json`，但存在局部失败或达到
+  预算后的截断。
+- `2`（参数用法错误）：参数缺失、非数字或超出允许范围；不会生成
+  `<output>\snapshot.json`。
 
 默认预算为总采集时间 60 秒、最多 50 个 Frame、每个 Frame 最多 20 个滚动容器、
 每个容器最多 30 轮滚动、最多 5,000 个元素、每段文本最多 500 字符、JSON 最大
@@ -100,12 +102,46 @@ bootstrap 还会将匹配当前 Playwright 版本的 Chromium 安装到项目自
   --max-json-bytes 1048576
 ```
 
+达到 Frame、滚动容器、滚动轮次、元素或文本预算时，对应 Frame 和最终文档会记录为
+`partial`、`truncated=true`，并保留 `max_frames`、`max_scroll_containers`、
+`round_limit`、`max_elements` 或 `max_text_chars` 等停止原因。脱敏命中的类别会以
+排序、去重后的 `redaction_categories` 写入 Frame 和全局统计；原值不会进入这些审计
+字段。
+
+### 程序化自定义脱敏规则
+
+自定义规则只通过受信任的程序配置注入，不提供 CLI 秘密参数：
+
+```python
+from ai_ui_explorer.snapshot.redaction import CustomRedactionRule, Redactor
+
+redactor = Redactor(
+    custom_rules=[
+        CustomRedactionRule(
+            name="case-reference",
+            category="CASE_REFERENCE",
+            pattern=r"\bCASE-\d{4}\b",
+        )
+    ]
+)
+```
+
+配置只包含规则名称、类别和结构化正则表达式，不需要也不得包含真实秘密值。最多配置
+32 条规则；单条 pattern 最长 512 个字符；名称和类别必须是最多 64 个字符的安全
+标识符；内建规则名、内建类别、重复名称、非法表达式和可匹配空字符串的表达式会被
+拒绝。替换结果固定为 `[REDACTED:<CATEGORY>]`，不能配置 replacement 模板重新插入
+原匹配值。
+
+自定义正则属于受信任的管理员配置。当前实现使用 Python 正则引擎，没有对最坏情况
+运行时间提供强制上限；配置者必须审查并避免灾难性回溯模式，再在虚构数据上验证。
+
 ### 数据安全边界
 
 - Sprint 1 不支持截图、HAR/trace、请求或响应正文、登录、SSO、扫码、MFA、Cookie、
   Token 或 storage state 持久化，也不执行点击、输入、提交、“加载更多”等业务动作。
 - 脱敏只能降低常见敏感信息泄露风险，不能保证识别全部业务敏感数据。快照仍可能包含
   页面名称、业务字段、可访问文本和 URL 等敏感信息。
+- 自定义脱敏正则仅允许受信任的管理员配置，不能把用户输入或真实秘密拼成规则。
 - 默认输出目录 `exploration-output/` 已被 Git 排除。使用其他输出目录时，操作者必须
   自行确保不提交快照，并按组织的数据分级、访问控制和保留制度及时归档或删除。
 - 不要在 `--url` 或其他命令参数中放入密码、Token、Cookie 或其他秘密，避免进入命令

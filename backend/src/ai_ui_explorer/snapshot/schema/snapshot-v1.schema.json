@@ -218,6 +218,13 @@
           ],
           "title": "Parent Frame Id"
         },
+        "redaction_categories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Redaction Categories",
+          "type": "array"
+        },
         "redaction_count": {
           "minimum": 0,
           "title": "Redaction Count",
@@ -242,6 +249,16 @@
         "stop_reason": {
           "anyOf": [
             {
+              "enum": [
+                "max_frames",
+                "max_scroll_containers",
+                "max_elements",
+                "max_text_chars",
+                "round_limit",
+                "deadline",
+                "detached",
+                "error"
+              ],
               "type": "string"
             },
             {
@@ -282,7 +299,8 @@
         "errors",
         "truncated",
         "stop_reason",
-        "redaction_count"
+        "redaction_count",
+        "redaction_categories"
       ],
       "title": "FrameSnapshot",
       "type": "object"
@@ -524,6 +542,13 @@
           "title": "Frame Count",
           "type": "integer"
         },
+        "redaction_categories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Redaction Categories",
+          "type": "array"
+        },
         "redaction_count": {
           "minimum": 0,
           "title": "Redaction Count",
@@ -542,6 +567,7 @@
         "element_count",
         "scroll_container_count",
         "redaction_count",
+        "redaction_categories",
         "duration_ms"
       ],
       "title": "SnapshotStatistics",

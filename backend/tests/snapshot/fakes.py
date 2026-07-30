@@ -81,7 +81,10 @@ class FakeSource:
     def with_one_success_and_one_invalid_child(cls) -> FakeSource:
         root = _completed_root(text="token=root-secret")
         invalid_child = replace(
-            _completed_root(text="Child content", frame_id="child"),
+            _completed_root(
+                text="email=invalid-child@example.test",
+                frame_id="child",
+            ),
             parent_frame_id="root",
             traversal_index=1,
             depth=-1,
@@ -117,6 +120,31 @@ class FakeSource:
             stop_reason="deadline",
         )
         return cls(_page(frames=[partial], deadline_reached=True))
+
+    @classmethod
+    def with_invalid_viewport(cls) -> FakeSource:
+        return cls(
+            replace(
+                _page(frames=[_completed_root(text="Visible page text")]),
+                viewport_width=0,
+            )
+        )
+
+    @classmethod
+    def with_invalid_page_error_timestamp(cls) -> FakeSource:
+        invalid_error = RawErrorObservation(
+            scope="page",
+            error_code="invalid_fixture_error",
+            message="Synthetic invalid page error.",
+            recoverable=True,
+            occurred_at=datetime(2026, 7, 29),
+        )
+        return cls(
+            replace(
+                _page(frames=[_completed_root(text="Visible page text")]),
+                errors=[invalid_error],
+            )
+        )
 
     def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
         self.collect_calls += 1

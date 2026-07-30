@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from time import monotonic
+from urllib.parse import urljoin
 
 import pytest
 from playwright.sync_api import Error as PlaywrightError
@@ -299,6 +300,27 @@ def test_container_limit_counts_document_as_container_zero(primary_url: str) -> 
         not frame.scroll_results or frame.scroll_results[0].label == "document"
         for frame in observation.frames
     )
+
+
+@pytest.mark.parametrize("container_limit", [0, 1])
+def test_scroll_container_limit_marks_owning_frame_partial_and_truncated(
+    primary_url: str,
+    container_limit: int,
+) -> None:
+    """An omitted document or nested container must be an explicit Frame truncation."""
+    observation = PlaywrightBrowserSource(headless=True).collect(
+        urljoin(primary_url, "/same-frame.html"),
+        SnapshotLimits(
+            max_scroll_containers_per_frame=container_limit,
+            max_scroll_rounds_per_container=2,
+        ),
+    )
+
+    main_frame = observation.frames[0]
+    assert len(main_frame.scroll_results) == container_limit
+    assert main_frame.status == "partial"
+    assert main_frame.truncated is True
+    assert main_frame.stop_reason == "max_scroll_containers"
 
 
 def test_scrolled_elements_are_deduplicated_and_never_include_sensitive_values(
