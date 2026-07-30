@@ -48,6 +48,8 @@ def test_legacy_snapshot_validates_with_committed_v1_schema() -> None:
     payload = make_legacy_snapshot().model_dump(mode="json")
     schema = json.loads(_SNAPSHOT_V1_SCHEMA_PATH.read_text(encoding="utf-8"))
 
+    assert "locator_candidates" not in payload
+    assert "locator_candidate_count" not in payload["statistics"]
     Draft202012Validator(schema).validate(payload)
     assert SnapshotDocumentV1.model_validate(payload).schema_version == "1.0"
 

@@ -299,25 +299,6 @@ class _SnapshotDocumentBase(BaseModel):
 class SnapshotDocumentV1(_SnapshotDocumentBase):
     schema_version: Literal["1.0"] = "1.0"
 
-    @model_validator(mode="before")
-    @classmethod
-    def discard_current_locator_statistics(
-        cls, value: object
-    ) -> object:
-        if not isinstance(value, dict):
-            return value
-        statistics = value.get("statistics")
-        if not isinstance(statistics, dict) or "locator_candidate_count" not in statistics:
-            return value
-        normalized = dict(value)
-        normalized["statistics"] = {
-            key: statistic_value
-            for key, statistic_value in statistics.items()
-            if key != "locator_candidate_count"
-        }
-        return normalized
-
-
 class SnapshotDocument(_SnapshotDocumentBase):
     schema_version: Literal["1.1"] = "1.1"
     statistics: SnapshotStatistics

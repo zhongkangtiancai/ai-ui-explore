@@ -16,6 +16,7 @@ from ai_ui_explorer.snapshot.models import (
 
 from .factories import (
     make_frame,
+    make_legacy_snapshot,
     make_locator_candidate,
     make_oversized_snapshot,
     make_snapshot,
@@ -274,10 +275,27 @@ def test_legacy_snapshot_model_accepts_version_1_0() -> None:
     payload = make_snapshot().model_dump(mode="json")
     payload["schema_version"] = "1.0"
     payload.pop("locator_candidates")
+    payload["statistics"].pop("locator_candidate_count")
 
     legacy = SnapshotDocumentV1.model_validate(payload)
 
     assert legacy.schema_version == "1.0"
+
+
+def test_legacy_snapshot_rejects_current_locator_candidates() -> None:
+    payload = make_legacy_snapshot().model_dump(mode="json")
+    payload["locator_candidates"] = []
+
+    with pytest.raises(ValidationError):
+        SnapshotDocumentV1.model_validate(payload)
+
+
+def test_legacy_snapshot_rejects_current_locator_statistics() -> None:
+    payload = make_legacy_snapshot().model_dump(mode="json")
+    payload["statistics"]["locator_candidate_count"] = 0
+
+    with pytest.raises(ValidationError):
+        SnapshotDocumentV1.model_validate(payload)
 
 
 def test_snapshot_rejects_locator_with_missing_element_reference() -> None:

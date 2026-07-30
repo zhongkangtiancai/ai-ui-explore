@@ -68,6 +68,7 @@ def test_legacy_snapshot_model_accepts_version_1_0() -> None:
     payload = make_snapshot().model_dump(mode="json")
     payload["schema_version"] = "1.0"
     payload.pop("locator_candidates")
+    payload["statistics"].pop("locator_candidate_count")
     legacy = SnapshotDocumentV1.model_validate(payload)
     assert legacy.schema_version == "1.0"
 
