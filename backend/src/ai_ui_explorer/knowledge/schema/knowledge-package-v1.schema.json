@@ -1,0 +1,1053 @@
+{
+  "$defs": {
+    "AccessStatus": {
+      "enum": [
+        "public",
+        "authentication_required",
+        "authentication_in_progress",
+        "authenticated",
+        "permission_denied",
+        "anti_automation_blocked",
+        "rate_limited",
+        "unknown"
+      ],
+      "title": "AccessStatus",
+      "type": "string"
+    },
+    "CollectionStatus": {
+      "enum": [
+        "completed",
+        "partial",
+        "failed"
+      ],
+      "title": "CollectionStatus",
+      "type": "string"
+    },
+    "ContentStatus": {
+      "enum": [
+        "expected",
+        "unexpected",
+        "insufficient_evidence"
+      ],
+      "title": "ContentStatus",
+      "type": "string"
+    },
+    "EntityType": {
+      "enum": [
+        "page",
+        "frame",
+        "element"
+      ],
+      "title": "EntityType",
+      "type": "string"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_id": {
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "evidence_type": {
+          "minLength": 1,
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "excerpt": {
+          "title": "Excerpt",
+          "type": "string"
+        },
+        "json_pointer": {
+          "title": "Json Pointer",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "format": "uuid",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "snapshot_schema_version": {
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
+          "title": "Snapshot Schema Version",
+          "type": "string"
+        },
+        "snapshot_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "snapshot_id",
+        "snapshot_schema_version",
+        "snapshot_sha256",
+        "json_pointer",
+        "evidence_type",
+        "excerpt"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "ExplorationRun": {
+      "additionalProperties": false,
+      "properties": {
+        "access_status": {
+          "$ref": "#/$defs/AccessStatus"
+        },
+        "collection_status": {
+          "$ref": "#/$defs/CollectionStatus"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        },
+        "content_status": {
+          "$ref": "#/$defs/ContentStatus"
+        },
+        "exploration_run_id": {
+          "minLength": 1,
+          "title": "Exploration Run Id",
+          "type": "string"
+        },
+        "exploration_status": {
+          "$ref": "#/$defs/ExplorationStatus"
+        },
+        "identity_context": {
+          "$ref": "#/$defs/IdentityContext"
+        },
+        "snapshot_id": {
+          "format": "uuid",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "snapshot_schema_version": {
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
+          "title": "Snapshot Schema Version",
+          "type": "string"
+        },
+        "snapshot_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Sha256",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exploration_run_id",
+        "snapshot_id",
+        "snapshot_schema_version",
+        "snapshot_sha256",
+        "collection_status",
+        "content_status",
+        "access_status",
+        "exploration_status",
+        "identity_context",
+        "started_at",
+        "completed_at"
+      ],
+      "title": "ExplorationRun",
+      "type": "object"
+    },
+    "ExplorationStatus": {
+      "enum": [
+        "created",
+        "collecting",
+        "paused_for_human",
+        "verifying_authentication",
+        "completed",
+        "partial",
+        "failed",
+        "cancelled"
+      ],
+      "title": "ExplorationStatus",
+      "type": "string"
+    },
+    "Fact": {
+      "additionalProperties": false,
+      "properties": {
+        "assertion_type": {
+          "const": "observed",
+          "default": "observed",
+          "title": "Assertion Type",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 1.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "fact_id": {
+          "minLength": 1,
+          "title": "Fact Id",
+          "type": "string"
+        },
+        "object_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Ref"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "predicate": {
+          "$ref": "#/$defs/Predicate"
+        },
+        "subject_ref": {
+          "minLength": 1,
+          "title": "Subject Ref",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "fact_id",
+        "subject_ref",
+        "predicate",
+        "evidence_refs",
+        "observed_at"
+      ],
+      "title": "Fact",
+      "type": "object"
+    },
+    "IdentityContext": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_scope": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Authorization Scope",
+          "type": "array"
+        },
+        "identity_alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Identity Alias"
+        },
+        "role_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role Label"
+        },
+        "status": {
+          "enum": [
+            "not_provided",
+            "provided"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "identity_alias",
+        "role_label",
+        "authorization_scope"
+      ],
+      "title": "IdentityContext",
+      "type": "object"
+    },
+    "Inference": {
+      "additionalProperties": false,
+      "properties": {
+        "conclusion": {
+          "minLength": 1,
+          "title": "Conclusion",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "inference_id": {
+          "minLength": 1,
+          "title": "Inference Id",
+          "type": "string"
+        },
+        "method": {
+          "minLength": 1,
+          "title": "Method",
+          "type": "string"
+        },
+        "producer": {
+          "minLength": 1,
+          "title": "Producer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "inference_id",
+        "conclusion",
+        "evidence_refs",
+        "confidence",
+        "producer",
+        "method",
+        "created_at"
+      ],
+      "title": "Inference",
+      "type": "object"
+    },
+    "KnowledgeApplication": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_origins": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Allowed Origins",
+          "type": "array"
+        },
+        "application_id": {
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]{0,63}$",
+          "title": "Application Id",
+          "type": "string"
+        },
+        "authentication_origins": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Authentication Origins",
+          "type": "array"
+        },
+        "environment": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Environment",
+          "type": "string"
+        },
+        "manifest_schema_version": {
+          "const": "1.0",
+          "title": "Manifest Schema Version",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "application_id",
+        "name",
+        "environment",
+        "manifest_schema_version",
+        "allowed_origins",
+        "authentication_origins"
+      ],
+      "title": "KnowledgeApplication",
+      "type": "object"
+    },
+    "KnowledgeEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "application_ref": {
+          "minLength": 1,
+          "title": "Application Ref",
+          "type": "string"
+        },
+        "entity_id": {
+          "minLength": 1,
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "entity_type": {
+          "$ref": "#/$defs/EntityType"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "match_hints": {
+          "items": {
+            "$ref": "#/$defs/MatchHint"
+          },
+          "title": "Match Hints",
+          "type": "array"
+        },
+        "observed_from": {
+          "format": "date-time",
+          "title": "Observed From",
+          "type": "string"
+        },
+        "observed_to": {
+          "format": "date-time",
+          "title": "Observed To",
+          "type": "string"
+        },
+        "source_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "entity_id",
+        "entity_type",
+        "label",
+        "application_ref",
+        "source_refs",
+        "observed_from",
+        "observed_to",
+        "match_hints"
+      ],
+      "title": "KnowledgeEntity",
+      "type": "object"
+    },
+    "KnowledgeGap": {
+      "additionalProperties": false,
+      "properties": {
+        "aspect": {
+          "minLength": 1,
+          "title": "Aspect",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "gap_id": {
+          "minLength": 1,
+          "title": "Gap Id",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/KnowledgeGapReason"
+        },
+        "subject_ref": {
+          "minLength": 1,
+          "title": "Subject Ref",
+          "type": "string"
+        },
+        "verification": {
+          "minLength": 1,
+          "title": "Verification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gap_id",
+        "subject_ref",
+        "aspect",
+        "reason_code",
+        "reason",
+        "evidence_refs",
+        "verification"
+      ],
+      "title": "KnowledgeGap",
+      "type": "object"
+    },
+    "KnowledgeGapReason": {
+      "enum": [
+        "not_observed",
+        "insufficient_evidence",
+        "snapshot_version_limited",
+        "authentication_required",
+        "identity_not_available",
+        "permission_denied",
+        "anti_automation_blocked",
+        "collection_truncated",
+        "unsupported_in_current_sprint"
+      ],
+      "title": "KnowledgeGapReason",
+      "type": "string"
+    },
+    "KnowledgeLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_evidence_chars": {
+          "default": 500,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Max Evidence Chars",
+          "type": "integer"
+        },
+        "max_facts": {
+          "default": 150000,
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Max Facts",
+          "type": "integer"
+        },
+        "max_json_bytes": {
+          "default": 52428800,
+          "maximum": 524288000,
+          "minimum": 65536,
+          "title": "Max Json Bytes",
+          "type": "integer"
+        },
+        "max_knowledge_gaps": {
+          "default": 1000,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Max Knowledge Gaps",
+          "type": "integer"
+        },
+        "max_locators_per_element": {
+          "default": 12,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Locators Per Element",
+          "type": "integer"
+        },
+        "max_observations": {
+          "default": 1000,
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Max Observations",
+          "type": "integer"
+        }
+      },
+      "title": "KnowledgeLimits",
+      "type": "object"
+    },
+    "KnowledgeLocator": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "element_ref": {
+          "minLength": 1,
+          "title": "Element Ref",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "frame_ref": {
+          "minLength": 1,
+          "title": "Frame Ref",
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "locator_id": {
+          "minLength": 1,
+          "title": "Locator Id",
+          "type": "string"
+        },
+        "match_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match Count"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "rank": {
+          "minimum": 1,
+          "title": "Rank",
+          "type": "integer"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/$defs/LocatorSource"
+        },
+        "stability": {
+          "$ref": "#/$defs/LocatorStability"
+        },
+        "strategy": {
+          "$ref": "#/$defs/LocatorStrategy"
+        },
+        "uniqueness": {
+          "$ref": "#/$defs/LocatorUniqueness"
+        }
+      },
+      "required": [
+        "locator_id",
+        "element_ref",
+        "frame_ref",
+        "strategy",
+        "parameters",
+        "source",
+        "uniqueness",
+        "stability",
+        "confidence",
+        "rank",
+        "recommended",
+        "evidence_refs",
+        "limitations"
+      ],
+      "title": "KnowledgeLocator",
+      "type": "object"
+    },
+    "KnowledgeStatistics": {
+      "additionalProperties": false,
+      "properties": {
+        "entity_count": {
+          "minimum": 0,
+          "title": "Entity Count",
+          "type": "integer"
+        },
+        "evidence_count": {
+          "minimum": 0,
+          "title": "Evidence Count",
+          "type": "integer"
+        },
+        "fact_count": {
+          "minimum": 0,
+          "title": "Fact Count",
+          "type": "integer"
+        },
+        "inference_count": {
+          "minimum": 0,
+          "title": "Inference Count",
+          "type": "integer"
+        },
+        "knowledge_gap_count": {
+          "minimum": 0,
+          "title": "Knowledge Gap Count",
+          "type": "integer"
+        },
+        "locator_candidate_count": {
+          "minimum": 0,
+          "title": "Locator Candidate Count",
+          "type": "integer"
+        },
+        "observation_count": {
+          "minimum": 0,
+          "title": "Observation Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entity_count",
+        "locator_candidate_count",
+        "evidence_count",
+        "fact_count",
+        "observation_count",
+        "inference_count",
+        "knowledge_gap_count"
+      ],
+      "title": "KnowledgeStatistics",
+      "type": "object"
+    },
+    "KnowledgeStatus": {
+      "enum": [
+        "completed",
+        "partial"
+      ],
+      "title": "KnowledgeStatus",
+      "type": "string"
+    },
+    "LocatorSource": {
+      "enum": [
+        "observed",
+        "generated",
+        "diagnostic"
+      ],
+      "title": "LocatorSource",
+      "type": "string"
+    },
+    "LocatorStability": {
+      "enum": [
+        "high",
+        "medium",
+        "low",
+        "unknown"
+      ],
+      "title": "LocatorStability",
+      "type": "string"
+    },
+    "LocatorStrategy": {
+      "enum": [
+        "role",
+        "label",
+        "text",
+        "placeholder",
+        "alt",
+        "title",
+        "testid",
+        "id",
+        "name",
+        "aria",
+        "css",
+        "xpath",
+        "position"
+      ],
+      "title": "LocatorStrategy",
+      "type": "string"
+    },
+    "LocatorUniqueness": {
+      "enum": [
+        "unique",
+        "multiple",
+        "unverified"
+      ],
+      "title": "LocatorUniqueness",
+      "type": "string"
+    },
+    "MatchHint": {
+      "additionalProperties": false,
+      "properties": {
+        "hint_type": {
+          "$ref": "#/$defs/MatchHintType"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hint_type",
+        "value"
+      ],
+      "title": "MatchHint",
+      "type": "object"
+    },
+    "MatchHintType": {
+      "enum": [
+        "url",
+        "frame_ancestry",
+        "tag",
+        "role",
+        "test_id",
+        "locator_parameter"
+      ],
+      "title": "MatchHintType",
+      "type": "string"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "promotion_status": {
+          "const": "unverified",
+          "default": "unverified",
+          "title": "Promotion Status",
+          "type": "string"
+        },
+        "subject_ref": {
+          "minLength": 1,
+          "title": "Subject Ref",
+          "type": "string"
+        },
+        "summary": {
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observation_id",
+        "subject_ref",
+        "summary",
+        "evidence_refs",
+        "confidence",
+        "limitations"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "Predicate": {
+      "description": "Finite predicate namespace accepted by the Sprint 2 contract.",
+      "enum": [
+        "application.name",
+        "application.environment",
+        "application.allowed_origin",
+        "application.authentication_origin",
+        "page.requested_url",
+        "page.final_url",
+        "page.title",
+        "page.language",
+        "page.viewport_width",
+        "page.viewport_height",
+        "frame.parent",
+        "frame.name",
+        "frame.url",
+        "frame.status",
+        "frame.depth",
+        "frame.truncated",
+        "element.located_in",
+        "element.tag",
+        "element.role",
+        "element.accessible_name",
+        "element.text",
+        "element.visible",
+        "element.enabled",
+        "element.checked",
+        "element.selected",
+        "element.expanded",
+        "element.attribute",
+        "locator.locates",
+        "locator.strategy",
+        "locator.uniqueness",
+        "locator.stability",
+        "locator.recommended",
+        "exploration.source_snapshot",
+        "exploration.collection_status",
+        "exploration.content_status",
+        "exploration.access_status",
+        "identity.status",
+        "access.status"
+      ],
+      "title": "Predicate",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "application": {
+      "$ref": "#/$defs/KnowledgeApplication"
+    },
+    "entities": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeEntity"
+      },
+      "title": "Entities",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "exploration_run": {
+      "$ref": "#/$defs/ExplorationRun"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/Fact"
+      },
+      "title": "Facts",
+      "type": "array"
+    },
+    "inferences": {
+      "items": {
+        "$ref": "#/$defs/Inference"
+      },
+      "title": "Inferences",
+      "type": "array"
+    },
+    "knowledge_gaps": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeGap"
+      },
+      "title": "Knowledge Gaps",
+      "type": "array"
+    },
+    "limits": {
+      "$ref": "#/$defs/KnowledgeLimits"
+    },
+    "locator_candidates": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeLocator"
+      },
+      "title": "Locator Candidates",
+      "type": "array"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/Observation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "package_id": {
+      "minLength": 1,
+      "title": "Package Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "statistics": {
+      "$ref": "#/$defs/KnowledgeStatistics"
+    },
+    "status": {
+      "$ref": "#/$defs/KnowledgeStatus"
+    },
+    "stop_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Stop Reasons",
+      "type": "array"
+    }
+  },
+  "required": [
+    "package_id",
+    "status",
+    "limits",
+    "application",
+    "exploration_run",
+    "entities",
+    "locator_candidates",
+    "evidence",
+    "facts",
+    "observations",
+    "inferences",
+    "knowledge_gaps",
+    "statistics",
+    "stop_reasons"
+  ],
+  "title": "KnowledgePackage",
+  "type": "object"
+}

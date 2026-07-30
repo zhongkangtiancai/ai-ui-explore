@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "description": "Versioned, non-sensitive application identity and origin boundary.",
+  "properties": {
+    "allowed_origins": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Allowed Origins",
+      "type": "array"
+    },
+    "application_id": {
+      "pattern": "^[a-z][a-z0-9-]{0,63}$",
+      "title": "Application Id",
+      "type": "string"
+    },
+    "authentication_origins": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Authentication Origins",
+      "type": "array"
+    },
+    "environment": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Environment",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "application_id",
+    "name",
+    "environment",
+    "allowed_origins"
+  ],
+  "title": "ApplicationManifest",
+  "type": "object"
+}
