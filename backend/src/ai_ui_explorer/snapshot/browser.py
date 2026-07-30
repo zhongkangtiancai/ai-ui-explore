@@ -16,7 +16,13 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Frame, Page, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from ai_ui_explorer.snapshot.models import Bounds, FrameStopReason, SnapshotLimits
+from ai_ui_explorer.snapshot.models import (
+    Bounds,
+    FrameStopReason,
+    LocatorParameter,
+    LocatorStrategy,
+    SnapshotLimits,
+)
 
 _OBSERVATION_ATTRIBUTE = "data-snapshot-observation"
 _OBSERVATION_SELECTOR = "snapshot_observation"
@@ -24,6 +30,71 @@ _OBSERVATION_SELECTOR_ENGINE = """
 (() => {
 const observationNodeIds = new WeakMap();
 let nextObservationNodeId = 0;
+const interactiveSelector =
+  "a[href],button,input:not([type='hidden']),select,textarea,summary,img[alt],[role],[tabindex]";
+const observedAttributeNames = new Set([
+  "id", "name", "type", "placeholder", "data-testid", "alt", "title",
+]);
+const strategyOrder = {
+  testid: 0, role: 1, label: 2, text: 3, placeholder: 4,
+  alt: 5, title: 6, id: 7, name: 8, aria: 9,
+  css: 10, xpath: 11, position: 12,
+};
+const stabilityOrder = { high: 0, medium: 1, low: 2, unknown: 3 };
+const sensitiveValuePattern =
+  /(password|passcode|passwd|token|secret|credential|api[-_ ]?key|authorization|cookie|session)/i;
+const redactionMarkerPattern = /(\\[redacted\\]|<redacted>|\\*{3,}|•{3,})/i;
+const normalizeText = (value) => {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\\s+/g, " ").trim();
+  return normalized || null;
+};
+const safeCandidateString = (value) => {
+  const normalized = normalizeText(value);
+  if (!normalized) return null;
+  if (sensitiveValuePattern.test(normalized) || redactionMarkerPattern.test(normalized)) {
+    return null;
+  }
+  return normalized;
+};
+const normalizeCandidateParameters = (parameters) => {
+  const normalized = {};
+  for (const key of Object.keys(parameters).sort()) {
+    const value = parameters[key];
+    if (typeof value === "string") {
+      const safeValue = safeCandidateString(value);
+      if (!safeValue) return null;
+      normalized[key] = safeValue;
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      normalized[key] = value;
+    } else {
+      return null;
+    }
+  }
+  return normalized;
+};
+const canonicalParameters = (parameters) => JSON.stringify(parameters);
+const allowedAttributeName = (name) => (
+  observedAttributeNames.has(name) || name.startsWith("aria-")
+);
+const safeObservedAttribute = (element, name) => {
+  const normalizedName = String(name).toLowerCase();
+  if (!allowedAttributeName(normalizedName)) return null;
+  return safeCandidateString(element.getAttribute(normalizedName));
+};
+const interactiveElements = (root) => {
+  const elements = [];
+  const visit = (scope) => {
+    for (const element of scope.querySelectorAll(interactiveSelector)) {
+      elements.push(element);
+    }
+    for (const element of scope.querySelectorAll("*")) {
+      if (element.shadowRoot) visit(element.shadowRoot);
+    }
+  };
+  visit(root);
+  return elements;
+};
 const observationNodeIdFor = (element) => {
   let nodeId = observationNodeIds.get(element);
   if (!nodeId) {
@@ -78,7 +149,10 @@ const collect = (root, { maxElements, maxTextChars }) => {
   };
   const referencedName = (element) => {
     const ids = (element.getAttribute("aria-labelledby") || "").split(/\\s+/).filter(Boolean);
-    return clip(ids.map((id) => document.getElementById(id)?.innerText || "").join(" "));
+    const elementRoot = element.getRootNode();
+    return clip(
+      ids.map((id) => elementRoot.getElementById?.(id)?.innerText || "").join(" ")
+    );
   };
   const stateFromAria = (element, attribute) => {
     const value = element.getAttribute(attribute);
@@ -86,20 +160,15 @@ const collect = (root, { maxElements, maxTextChars }) => {
     if (value === "false") return false;
     return null;
   };
-  const candidates = root.querySelectorAll(
-    "a[href],button,input:not([type='hidden']),select,textarea,summary,[role],[tabindex]"
-  );
-  for (const element of candidates) {
+  const allElements = interactiveElements(root);
+  const visibleElements = allElements.filter((element) => {
     const bounds = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
-    const visible = bounds.width > 0 && bounds.height > 0
+    return bounds.width > 0 && bounds.height > 0
       && style.display !== "none"
       && style.visibility !== "hidden";
-    if (!visible) continue;
-    if (observations.length >= maxElements) {
-      return result(true);
-    }
-
+  });
+  const observed = visibleElements.map((element) => {
     const tag = element.tagName.toLowerCase();
     const role = clip(element.getAttribute("role")) || implicitRole(element);
     const label = labelText(element);
@@ -113,13 +182,215 @@ const collect = (root, { maxElements, maxTextChars }) => {
     const attributes = {};
     for (const attribute of element.attributes) {
       const name = attribute.name.toLowerCase();
-      if (
-        ["id", "name", "type", "placeholder", "data-testid"].includes(name)
-        || name.startsWith("aria-")
-      ) {
+      if (allowedAttributeName(name)) {
         attributes[name] = clip(element.getAttribute(name)) || "";
       }
     }
+    return {
+      element,
+      tag,
+      role,
+      label,
+      accessibleName,
+      text: clip(element.innerText),
+      attributes,
+    };
+  });
+  const semanticMatchCounts = new Map();
+  for (const item of observed) {
+    for (const definition of semanticDefinitions(item)) {
+      const key =
+        `${definition.strategy}\\u0000${canonicalParameters(definition.parameters)}`;
+      semanticMatchCounts.set(key, (semanticMatchCounts.get(key) || 0) + 1);
+    }
+  }
+  const countSemanticMatches = (strategy, parameters) => (
+    semanticMatchCounts.get(
+      `${strategy}\\u0000${canonicalParameters(parameters)}`
+    ) || 0
+  );
+  const makeCountedCandidate = ({
+    strategy, parameters, source, stability, confidence, matchCount, limitations = [],
+  }) => {
+    const normalizedParameters = normalizeCandidateParameters(parameters);
+    if (!normalizedParameters) return null;
+    const uniqueness = matchCount === null
+      ? "unverified"
+      : (matchCount === 1 ? "unique" : "multiple");
+    return {
+      strategy,
+      parameters: normalizedParameters,
+      source,
+      uniqueness,
+      matchCount,
+      stability,
+      confidence,
+      rank: 0,
+      recommended: matchCount === 1 && strategy !== "position",
+      limitations,
+    };
+  };
+  function semanticDefinitions(item) {
+    const definitions = [];
+    const add = (strategy, parameters, stability, confidence) => {
+      const normalizedParameters = normalizeCandidateParameters(parameters);
+      if (!normalizedParameters) return;
+      definitions.push({
+        strategy,
+        parameters: normalizedParameters,
+        source: "observed",
+        stability,
+        confidence,
+      });
+    };
+    const testId = safeObservedAttribute(item.element, "data-testid");
+    const placeholder = safeObservedAttribute(item.element, "placeholder");
+    const alt = safeObservedAttribute(item.element, "alt");
+    const title = safeObservedAttribute(item.element, "title");
+    const id = safeObservedAttribute(item.element, "id");
+    const name = safeObservedAttribute(item.element, "name");
+    const ariaLabel = safeObservedAttribute(item.element, "aria-label");
+    if (testId) add("testid", { value: testId }, "high", 0.99);
+    if (item.role && item.accessibleName) {
+      add(
+        "role",
+        { role: item.role, name: item.accessibleName },
+        "high",
+        0.95,
+      );
+    }
+    if (item.label) add("label", { value: item.label }, "high", 0.95);
+    if (item.text) add("text", { value: item.text }, "medium", 0.75);
+    if (placeholder) add("placeholder", { value: placeholder }, "medium", 0.85);
+    if (alt) add("alt", { value: alt }, "medium", 0.85);
+    if (title) add("title", { value: title }, "medium", 0.8);
+    if (id) add("id", { value: id }, "high", 0.9);
+    if (name) add("name", { value: name }, "medium", 0.8);
+    if (ariaLabel) {
+      add(
+        "aria",
+        { attribute: "aria-label", value: ariaLabel },
+        "medium",
+        0.8,
+      );
+    }
+    return definitions;
+  }
+  const structuralSegments = (element) => {
+    const segments = [];
+    let current = element;
+    while (current instanceof Element && segments.length < 4) {
+      const tag = current.tagName.toLowerCase();
+      const siblings = current.parentElement
+        ? Array.from(current.parentElement.children).filter(
+          (sibling) => sibling.tagName === current.tagName
+        )
+        : [current];
+      const position = siblings.indexOf(current) + 1;
+      segments.push({ css: `${tag}:nth-of-type(${position})`, xpath: `${tag}[${position}]` });
+      current = current.parentElement;
+    }
+    return segments.reverse();
+  };
+  const cssCandidate = (element) => {
+    const selector = structuralSegments(element).map((item) => item.css).join(" > ");
+    if (!selector || selector.length > 256) return null;
+    try {
+      const matchCount = element.getRootNode().querySelectorAll(selector).length;
+      return makeCountedCandidate({
+        strategy: "css",
+        parameters: { selector },
+        source: "generated",
+        stability: "low",
+        confidence: 0.6,
+        matchCount,
+      });
+    } catch {
+      return null;
+    }
+  };
+  const xpathCandidate = (element) => {
+    if (element.getRootNode() !== document) return null;
+    const expression =
+      `//${structuralSegments(element).map((item) => item.xpath).join("/")}`;
+    if (!expression || expression.length > 256) return null;
+    try {
+      const matches = document.evaluate(
+        expression,
+        document,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null,
+      );
+      return makeCountedCandidate({
+        strategy: "xpath",
+        parameters: { expression },
+        source: "generated",
+        stability: "low",
+        confidence: 0.5,
+        matchCount: matches.snapshotLength,
+      });
+    } catch {
+      return null;
+    }
+  };
+  const locatorCandidates = (item, bounds) => {
+    const candidates = [];
+    for (const definition of semanticDefinitions(item)) {
+      const candidate = makeCountedCandidate({
+        ...definition,
+        matchCount: countSemanticMatches(
+          definition.strategy,
+          definition.parameters,
+        ),
+      });
+      if (candidate) candidates.push(candidate);
+    }
+    const css = cssCandidate(item.element);
+    if (css) candidates.push(css);
+    const xpath = xpathCandidate(item.element);
+    if (xpath) candidates.push(xpath);
+    candidates.push({
+      strategy: "position",
+      parameters: {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      },
+      source: "observed",
+      uniqueness: "unverified",
+      matchCount: null,
+      stability: "low",
+      confidence: 1.0,
+      rank: 0,
+      recommended: false,
+      limitations: ["viewport_and_scroll_dependent"],
+    });
+    candidates.sort((left, right) => {
+      const leftRecommended = left.recommended && left.uniqueness === "unique" ? 0 : 1;
+      const rightRecommended = right.recommended && right.uniqueness === "unique" ? 0 : 1;
+      return leftRecommended - rightRecommended
+        || stabilityOrder[left.stability] - stabilityOrder[right.stability]
+        || strategyOrder[left.strategy] - strategyOrder[right.strategy]
+        || canonicalParameters(left.parameters).localeCompare(
+          canonicalParameters(right.parameters)
+        );
+    });
+    return candidates.slice(0, 12).map(
+      (candidate, index) => ({ ...candidate, rank: index + 1 })
+    );
+  };
+  for (const item of observed) {
+    const element = item.element;
+    if (observations.length >= maxElements) {
+      return result(true);
+    }
+
+    const { tag, role, label, accessibleName, text, attributes } = item;
+    const bounds = element.getBoundingClientRect();
 
     let enabled = null;
     if (["a", "button", "input", "select", "textarea", "option"].includes(tag)) {
@@ -156,9 +427,9 @@ const collect = (root, { maxElements, maxTextChars }) => {
       tag,
       role,
       accessibleName,
-      text: clip(element.innerText),
+      text,
       attributes,
-      visible,
+      visible: true,
       enabled,
       checked,
       selected,
@@ -170,6 +441,7 @@ const collect = (root, { maxElements, maxTextChars }) => {
         height: bounds.height,
       },
       locatorHints,
+      locatorCandidates: locatorCandidates(item, bounds),
     });
   }
   return result(false);
@@ -198,6 +470,20 @@ class RawLocatorHint:
 
 
 @dataclass(frozen=True, slots=True)
+class RawLocatorCandidate:
+    strategy: LocatorStrategy
+    parameters: dict[str, LocatorParameter]
+    source: Literal["observed", "generated"]
+    uniqueness: Literal["unique", "multiple", "unverified"]
+    match_count: int | None
+    stability: Literal["high", "medium", "low", "unknown"]
+    confidence: float
+    rank: int
+    recommended: bool
+    limitations: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class RawElementObservation:
     traversal_index: int
     tag: str
@@ -212,6 +498,7 @@ class RawElementObservation:
     expanded: bool | None
     bounds: Bounds | None
     locator_hints: tuple[RawLocatorHint, ...]
+    locator_candidates: tuple[RawLocatorCandidate, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,6 +673,19 @@ class _RawLocatorHintPayload(TypedDict):
     value: str
 
 
+class _RawLocatorCandidatePayload(TypedDict):
+    strategy: str
+    parameters: dict[str, LocatorParameter]
+    source: str
+    uniqueness: str
+    matchCount: int | None
+    stability: str
+    confidence: float
+    rank: int
+    recommended: bool
+    limitations: list[str]
+
+
 class _RawElementPayload(TypedDict):
     nodeId: str
     tag: str
@@ -400,6 +700,7 @@ class _RawElementPayload(TypedDict):
     expanded: bool | None
     bounds: _RawBoundsPayload | None
     locatorHints: list[_RawLocatorHintPayload]
+    locatorCandidates: list[_RawLocatorCandidatePayload]
 
 
 class _RawTextPayload(TypedDict):
@@ -787,6 +1088,10 @@ def _element_from_payload(
         if bounds_payload is not None
         else None
     )
+    locator_candidates = tuple(
+        _locator_candidate_from_payload(candidate)
+        for candidate in payload["locatorCandidates"]
+    )
     return RawElementObservation(
         traversal_index=traversal_index,
         tag=payload["tag"],
@@ -804,6 +1109,56 @@ def _element_from_payload(
             RawLocatorHint(strategy=hint["strategy"], value=hint["value"])
             for hint in payload["locatorHints"]
         ),
+        locator_candidates=locator_candidates,
+    )
+
+
+def _locator_candidate_from_payload(
+    payload: _RawLocatorCandidatePayload,
+) -> RawLocatorCandidate:
+    strategy = payload["strategy"]
+    if strategy not in {
+        "role",
+        "label",
+        "text",
+        "placeholder",
+        "alt",
+        "title",
+        "testid",
+        "id",
+        "name",
+        "aria",
+        "css",
+        "xpath",
+        "position",
+    }:
+        raise ValueError(f"Unknown locator strategy: {strategy}")
+    source = payload["source"]
+    if source not in {"observed", "generated"}:
+        raise ValueError(f"Unknown locator source: {source}")
+    uniqueness = payload["uniqueness"]
+    if uniqueness not in {"unique", "multiple", "unverified"}:
+        raise ValueError(f"Unknown locator uniqueness: {uniqueness}")
+    stability = payload["stability"]
+    if stability not in {"high", "medium", "low", "unknown"}:
+        raise ValueError(f"Unknown locator stability: {stability}")
+    return RawLocatorCandidate(
+        strategy=cast(LocatorStrategy, strategy),
+        parameters=payload["parameters"],
+        source=cast(Literal["observed", "generated"], source),
+        uniqueness=cast(
+            Literal["unique", "multiple", "unverified"],
+            uniqueness,
+        ),
+        match_count=payload["matchCount"],
+        stability=cast(
+            Literal["high", "medium", "low", "unknown"],
+            stability,
+        ),
+        confidence=payload["confidence"],
+        rank=payload["rank"],
+        recommended=payload["recommended"],
+        limitations=tuple(payload["limitations"]),
     )
 
 

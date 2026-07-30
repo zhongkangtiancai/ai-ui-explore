@@ -346,6 +346,23 @@ def test_scrolled_elements_are_deduplicated_and_never_include_sensitive_values(
     assert "被错误点击" not in {element.accessible_name for element in elements}
 
 
+def test_candidates_discovered_after_scrolling_retain_locator_metadata(
+    primary_url: str,
+) -> None:
+    """A newly revealed element must not lose candidates during scroll deduplication."""
+    observation = collect_fixture(primary_url, max_scroll_rounds_per_container=10)
+    scrolled = next(
+        element
+        for element in all_elements(observation)
+        if element.accessible_name == "无限列表第 1 项"
+    )
+
+    assert scrolled.locator_candidates
+    assert scrolled.locator_candidates[0].rank == 1
+    assert any(item.strategy == "role" for item in scrolled.locator_candidates)
+    assert any(item.strategy == "position" for item in scrolled.locator_candidates)
+
+
 def test_scrolling_stops_immediately_when_global_element_budget_is_exhausted(
     primary_url: str,
 ) -> None:

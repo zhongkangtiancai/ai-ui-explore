@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Locator candidate fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Locator candidate fixture</h1>
+
+      <button>Submit order</button>
+      <button>Duplicate action</button>
+      <button>Duplicate action</button>
+      <button style="display: none;">Duplicate action</button>
+
+      <label for="candidate-cap-target">Candidate cap label</label>
+      <button
+        id="candidate-cap-target"
+        name="candidateCap"
+        data-testid="candidate-cap"
+        placeholder="Candidate cap placeholder"
+        alt="Candidate cap alt"
+        title="Candidate cap title"
+        aria-label="Candidate cap accessible name"
+      >Candidate cap text</button>
+
+      <label for="labelled-account">Labelled account</label>
+      <input id="labelled-account">
+      <input placeholder="Placeholder only">
+
+      <img
+        src="data:image/gif;base64,R0lGODlhAQABAAAAACw="
+        alt="Illustrated account"
+        tabindex="0"
+      >
+      <div tabindex="0" title="Open settings" style="width: 24px; height: 24px;"></div>
+
+      <button data-testid="stable-test-target">Test id target</button>
+      <button id="stable-id-target">Unique id target</button>
+      <input name="customerNumber" aria-label="Unique name target">
+      <button
+        data-testid="fixture-token-allowlisted-do-not-return"
+      >Sensitive test id target</button>
+      <button title="[REDACTED]"></button>
+      <button aria-label="fixture-password-allowlisted-do-not-return"></button>
+
+      <div>
+        <div>
+          <div>
+            <div>
+              <div>
+                <div>
+                  <button
+                    class="css-1a2b3c-dynamic-looking"
+                    aria-label="Bounded structural target"
+                    data-password="fixture-password-attribute-do-not-return"
+                    data-api-token="fixture-token-attribute-do-not-return"
+                    value="fixture-input-value-do-not-return"
+                  ></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section>
+        <article><nav><aside><button aria-label="Structural twin A"></button></aside></nav></article>
+      </section>
+      <section>
+        <article><nav><aside><button aria-label="Structural twin B"></button></aside></nav></article>
+      </section>
+
+      <button aria-label="跨源虚构操作">Main-frame namesake</button>
+      <div id="shadow-host"></div>
+      <iframe id="cross-frame" name="cross-origin" title="Cross-origin fixture"></iframe>
+    </main>
+
+    <script>
+      const query = new URLSearchParams(window.location.search);
+      document.querySelector("#cross-frame").src = query.get("secondary");
+
+      const shadowRoot = document.querySelector("#shadow-host").attachShadow({ mode: "open" });
+      const shadowButton = document.createElement("button");
+      shadowButton.setAttribute("aria-label", "Shadow action");
+      shadowButton.setAttribute("data-testid", "shadow-action");
+      shadowRoot.append(shadowButton);
+
+      const bulkCount = Number(query.get("bulk") || "0");
+      for (let index = 0; index < bulkCount; index += 1) {
+        const host = document.createElement("div");
+        document.querySelector("main").append(host);
+        const itemRoot = host.attachShadow({ mode: "open" });
+        const button = document.createElement("button");
+        button.textContent = "Bulk duplicate";
+        itemRoot.append(button);
+      }
+    </script>
+  </body>
+</html>

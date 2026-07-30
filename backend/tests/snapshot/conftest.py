@@ -8,7 +8,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 from time import sleep
-from urllib.parse import parse_qs, quote, urlsplit
+from urllib.parse import parse_qs, quote, urljoin, urlsplit
 
 import pytest
 
@@ -89,3 +89,9 @@ def primary_url(secondary_url: str) -> Generator[str]:
         yield f"http://127.0.0.1:{server.server_port}/index.html?secondary={encoded_secondary}"
     finally:
         _stop_server(server, thread, started=True)
+
+
+@pytest.fixture(scope="session")
+def locator_page_url(primary_url: str) -> str:
+    query = urlsplit(primary_url).query
+    return urljoin(primary_url, f"/locator-candidates.html?{query}")

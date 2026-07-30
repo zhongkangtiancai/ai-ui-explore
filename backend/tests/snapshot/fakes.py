@@ -196,6 +196,7 @@ def _completed_root(*, text: str, frame_id: str = "root") -> RawFrameObservation
                 expanded=None,
                 bounds=Bounds(x=0, y=0, width=100, height=32),
                 locator_hints=(),
+                locator_candidates=(),
             )
         ],
         scroll_results=[],
