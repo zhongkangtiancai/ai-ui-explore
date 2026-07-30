@@ -181,22 +181,42 @@ def test_collector_rejects_locator_parameters_outside_strategy_vocabulary(
     assert secret not in str(exc_info.value)
 
 
-def test_collector_uses_url_redaction_for_explicit_url_locator_parameters() -> None:
-    """Treating URL parameters as plain text would retain fragments and URL structure."""
-    snapshot = SnapshotCollector(
+@pytest.mark.parametrize(
+    ("key", "secret"),
+    [
+        ("url", "first-path-secret"),
+        ("href", "second-path-secret"),
+        ("src", "third-path-secret"),
+    ],
+)
+def test_collector_rejects_url_keys_absent_from_browser_strategy_contract(
+    key: str,
+    secret: str,
+) -> None:
+    """Browser does not emit URL keys, so no strategy may persist or hash them."""
+    value = f"https://example.test/token={secret}"
+    collector = SnapshotCollector(
         source=FakeSource.with_locator_candidates(
             (
                 _raw_locator_candidate(
-                    parameters={
-                        "url": "https://example.test/path?token=url-secret#private"
-                    }
+                    parameters={key: value}
                 ),
             )
         )
-    ).collect("https://example.test", SnapshotLimits())
+    )
 
-    value = snapshot.locator_candidates[0].parameters["url"]
-    assert value == "https://example.test/path?token=%5BREDACTED%3ATOKEN%5D"
+    with pytest.raises(CollectionFailedError) as exc_info:
+        collector.collect("https://example.test", SnapshotLimits())
+
+    exception_messages: list[str] = []
+    error: BaseException | None = exc_info.value
+    while error is not None:
+        exception_messages.append(str(error))
+        error = error.__cause__
+    serialized_errors = " ".join(exception_messages)
+    assert key not in serialized_errors
+    assert value not in serialized_errors
+    assert secret not in serialized_errors
 
 
 @pytest.mark.parametrize(

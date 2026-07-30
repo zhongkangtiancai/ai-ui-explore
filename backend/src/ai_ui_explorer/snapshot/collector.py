@@ -41,7 +41,6 @@ class CollectionFailedError(RuntimeError):
     """Raised when a valid top-level snapshot cannot be formed."""
 
 
-_URL_LOCATOR_PARAMETER_KEYS = frozenset({"url", "href", "src"})
 _LOCATOR_PARAMETER_KEYS: dict[LocatorStrategy, frozenset[str]] = {
     "role": frozenset({"role", "name", "exact"}),
     "label": frozenset({"value", "exact"}),
@@ -343,8 +342,7 @@ def _locator_candidates(
 ) -> list[SnapshotLocatorCandidate]:
     mapped: list[SnapshotLocatorCandidate] = []
     for raw in raw_candidates:
-        allowed_keys = _LOCATOR_PARAMETER_KEYS[raw.strategy] | _URL_LOCATOR_PARAMETER_KEYS
-        if not raw.parameters.keys() <= allowed_keys:
+        if not raw.parameters.keys() <= _LOCATOR_PARAMETER_KEYS[raw.strategy]:
             raise ValueError("locator candidate contains unsupported parameter keys")
         parameters = {
             key: (
@@ -386,8 +384,6 @@ def _locator_string_parameter(
     value: str,
     sanitizer: _Sanitizer,
 ) -> str:
-    if key in _URL_LOCATOR_PARAMETER_KEYS:
-        return sanitizer.url(value)
     return sanitizer.mapping({key: value})[key]
 
 
