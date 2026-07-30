@@ -73,6 +73,7 @@
 
       <button aria-label="跨源虚构操作">Main-frame namesake</button>
       <div id="shadow-host"></div>
+      <div id="shadow-host-second"></div>
       <iframe id="cross-frame" name="cross-origin" title="Cross-origin fixture"></iframe>
     </main>
 
@@ -86,6 +87,14 @@
       shadowButton.setAttribute("data-testid", "shadow-action");
       shadowRoot.append(shadowButton);
 
+      const secondShadowRoot = document
+        .querySelector("#shadow-host-second")
+        .attachShadow({ mode: "open" });
+      const secondShadowButton = document.createElement("button");
+      secondShadowButton.setAttribute("aria-label", "Shadow action second");
+      secondShadowButton.setAttribute("data-testid", "shadow-action-second");
+      secondShadowRoot.append(secondShadowButton);
+
       const bulkCount = Number(query.get("bulk") || "0");
       for (let index = 0; index < bulkCount; index += 1) {
         const host = document.createElement("div");
@@ -94,6 +103,13 @@
         const button = document.createElement("button");
         button.textContent = "Bulk duplicate";
         itemRoot.append(button);
+      }
+
+      const documentBulkCount = Number(query.get("documentBulk") || "0");
+      for (let index = 0; index < documentBulkCount; index += 1) {
+        const button = document.createElement("button");
+        button.textContent = "Document bulk duplicate";
+        document.querySelector("main").append(button);
       }
     </script>
   </body>

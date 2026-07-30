@@ -174,6 +174,50 @@ def test_browser_collects_semantic_locator_strategies(
         ), (accessible_name, strategy, elements[accessible_name].locator_candidates)
 
 
+def test_text_semantic_candidates_use_exact_playwright_matching(
+    locator_page_url: str,
+) -> None:
+    """Semantic counts and replay parameters must share exact text matching."""
+    raw_page = PlaywrightBrowserSource(headless=True).collect(
+        locator_page_url,
+        SnapshotLimits(),
+    )
+    elements = {
+        element.accessible_name: element
+        for frame in raw_page.frames
+        if frame.name == "main"
+        for element in frame.elements
+    }
+    expected = {
+        ("Submit order", "role"),
+        ("Labelled account", "label"),
+        ("Submit order", "text"),
+        ("Placeholder only", "placeholder"),
+        ("Illustrated account", "alt"),
+        ("Open settings", "title"),
+    }
+
+    for accessible_name, strategy in expected:
+        candidate = next(
+            item
+            for item in elements[accessible_name].locator_candidates
+            if item.strategy == strategy
+        )
+        assert candidate.parameters["exact"] is True
+    duplicate_role = next(
+        item
+        for item in elements["Duplicate action"].locator_candidates
+        if item.strategy == "role"
+    )
+    assert duplicate_role.parameters == {
+        "exact": True,
+        "name": "Duplicate action",
+        "role": "button",
+    }
+    assert duplicate_role.match_count == 2
+    assert duplicate_role.uniqueness == "multiple"
+
+
 def test_browser_marks_duplicate_semantic_candidates_not_recommended(
     locator_page_url: str,
 ) -> None:
@@ -356,6 +400,35 @@ def test_browser_semantic_counting_stays_within_large_frame_deadline(
     assert role.uniqueness == "multiple"
 
 
+def test_document_structural_counting_stays_within_large_frame_deadline(
+    locator_page_url: str,
+) -> None:
+    """Same-document siblings must not trigger per-element DOM-wide selector scans."""
+    bulk_url = f"{locator_page_url}&documentBulk=1500"
+    raw_page = PlaywrightBrowserSource(headless=True).collect(
+        bulk_url,
+        SnapshotLimits(total_timeout_ms=10_000, max_elements=2_000),
+    )
+    bulk = [
+        element
+        for frame in raw_page.frames
+        if frame.name == "main"
+        for element in frame.elements
+        if element.accessible_name == "Document bulk duplicate"
+    ]
+
+    assert raw_page.deadline_reached is False
+    assert len(bulk) == 1_500
+    for strategy in ("css", "xpath"):
+        candidate = next(
+            item for item in bulk[0].locator_candidates if item.strategy == strategy
+        )
+        assert candidate.match_count is not None
+        assert candidate.match_count >= 1_500
+        assert candidate.uniqueness == "multiple"
+        assert candidate.recommended is False
+
+
 def test_browser_collects_shadow_dom_and_scopes_cross_origin_candidates(
     locator_page_url: str,
 ) -> None:
@@ -386,6 +459,54 @@ def test_browser_collects_shadow_dom_and_scopes_cross_origin_candidates(
     assert cross.locator_candidates
     assert cross_role.uniqueness == "unique"
     assert cross_role.match_count == 1
+
+
+def test_shadow_dom_structural_candidates_expose_unmodeled_scope(
+    locator_page_url: str,
+) -> None:
+    """A ShadowRoot-local selector must never be reported as Frame-unique."""
+    raw_page = PlaywrightBrowserSource(headless=True).collect(
+        locator_page_url,
+        SnapshotLimits(),
+    )
+    shadow_elements = [
+        element
+        for frame in raw_page.frames
+        if frame.name == "main"
+        for element in frame.elements
+        if element.accessible_name in {"Shadow action", "Shadow action second"}
+    ]
+
+    assert len(shadow_elements) == 2
+    css_selectors = {
+        candidate.parameters["selector"]
+        for element in shadow_elements
+        for candidate in element.locator_candidates
+        if candidate.strategy == "css"
+    }
+    assert len(css_selectors) == 1
+    for element in shadow_elements:
+        css = next(
+            candidate
+            for candidate in element.locator_candidates
+            if candidate.strategy == "css"
+        )
+        xpath = next(
+            candidate
+            for candidate in element.locator_candidates
+            if candidate.strategy == "xpath"
+        )
+        assert css.match_count is None
+        assert css.uniqueness == "unverified"
+        assert css.recommended is False
+        assert css.limitations == ("shadow_root_scope_unmodeled",)
+        assert xpath.match_count is None
+        assert xpath.uniqueness == "unverified"
+        assert xpath.recommended is False
+        assert xpath.limitations == (
+            "shadow_root_scope_unmodeled",
+            "document_xpath_cannot_pierce_shadow_root",
+        )
 
 
 @pytest.mark.parametrize(

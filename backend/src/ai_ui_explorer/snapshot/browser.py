@@ -254,16 +254,18 @@ const collect = (root, { maxElements, maxTextChars }) => {
     if (item.role && item.accessibleName) {
       add(
         "role",
-        { role: item.role, name: item.accessibleName },
+        { role: item.role, name: item.accessibleName, exact: true },
         "high",
         0.95,
       );
     }
-    if (item.label) add("label", { value: item.label }, "high", 0.95);
-    if (item.text) add("text", { value: item.text }, "medium", 0.75);
-    if (placeholder) add("placeholder", { value: placeholder }, "medium", 0.85);
-    if (alt) add("alt", { value: alt }, "medium", 0.85);
-    if (title) add("title", { value: title }, "medium", 0.8);
+    if (item.label) add("label", { value: item.label, exact: true }, "high", 0.95);
+    if (item.text) add("text", { value: item.text, exact: true }, "medium", 0.75);
+    if (placeholder) {
+      add("placeholder", { value: placeholder, exact: true }, "medium", 0.85);
+    }
+    if (alt) add("alt", { value: alt, exact: true }, "medium", 0.85);
+    if (title) add("title", { value: title, exact: true }, "medium", 0.8);
     if (id) add("id", { value: id }, "high", 0.9);
     if (name) add("name", { value: name }, "medium", 0.8);
     if (ariaLabel) {
@@ -281,22 +283,33 @@ const collect = (root, { maxElements, maxTextChars }) => {
     let current = element;
     while (current instanceof Element && segments.length < 4) {
       const tag = current.tagName.toLowerCase();
-      const siblings = current.parentElement
-        ? Array.from(current.parentElement.children).filter(
-          (sibling) => sibling.tagName === current.tagName
-        )
-        : [current];
-      const position = siblings.indexOf(current) + 1;
-      segments.push({ css: `${tag}:nth-of-type(${position})`, xpath: `${tag}[${position}]` });
+      segments.push({ css: tag, xpath: tag });
       current = current.parentElement;
     }
     return segments.reverse();
   };
+  const cssMatchCounts = new Map();
+  const xpathMatchCounts = new Map();
   const cssCandidate = (element) => {
     const selector = structuralSegments(element).map((item) => item.css).join(" > ");
     if (!selector || selector.length > 256) return null;
+    if (element.getRootNode() !== document) {
+      return makeCountedCandidate({
+        strategy: "css",
+        parameters: { selector },
+        source: "generated",
+        stability: "low",
+        confidence: 0.4,
+        matchCount: null,
+        limitations: ["shadow_root_scope_unmodeled"],
+      });
+    }
     try {
-      const matchCount = element.getRootNode().querySelectorAll(selector).length;
+      let matchCount = cssMatchCounts.get(selector);
+      if (matchCount === undefined) {
+        matchCount = document.querySelectorAll(selector).length;
+        cssMatchCounts.set(selector, matchCount);
+      }
       return makeCountedCandidate({
         strategy: "css",
         parameters: { selector },
@@ -310,25 +323,43 @@ const collect = (root, { maxElements, maxTextChars }) => {
     }
   };
   const xpathCandidate = (element) => {
-    if (element.getRootNode() !== document) return null;
     const expression =
       `//${structuralSegments(element).map((item) => item.xpath).join("/")}`;
     if (!expression || expression.length > 256) return null;
+    if (element.getRootNode() !== document) {
+      return makeCountedCandidate({
+        strategy: "xpath",
+        parameters: { expression },
+        source: "generated",
+        stability: "low",
+        confidence: 0.3,
+        matchCount: null,
+        limitations: [
+          "shadow_root_scope_unmodeled",
+          "document_xpath_cannot_pierce_shadow_root",
+        ],
+      });
+    }
     try {
-      const matches = document.evaluate(
-        expression,
-        document,
-        null,
-        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
-        null,
-      );
+      let matchCount = xpathMatchCounts.get(expression);
+      if (matchCount === undefined) {
+        const matches = document.evaluate(
+          expression,
+          document,
+          null,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+          null,
+        );
+        matchCount = matches.snapshotLength;
+        xpathMatchCounts.set(expression, matchCount);
+      }
       return makeCountedCandidate({
         strategy: "xpath",
         parameters: { expression },
         source: "generated",
         stability: "low",
         confidence: 0.5,
-        matchCount: matches.snapshotLength,
+        matchCount,
       });
     } catch {
       return null;
