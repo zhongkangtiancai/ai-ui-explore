@@ -834,6 +834,22 @@ class KnowledgePackage(BaseModel):
 
 `KnowledgePackage` owns the reference-closure validator. `KnowledgeLimits` carries the approved defaults. Store Application and ExplorationRun at top level; `entities` contains only Page、Frame、Element; locators live only in `locator_candidates`.
 
+Confirmed contract clarification:
+
+- `KnowledgeApplication` preserves the normalized allowed and authentication
+  origins from the Manifest.
+- `KnowledgeEntity.source_refs` contains package-local Evidence IDs, never raw
+  JSON Pointers.
+- `frame_ancestry` MatchHint values are canonical JSON arrays of non-empty
+  strings in root-to-current order.
+- `locator_parameter` MatchHint values are canonical JSON objects with exactly
+  `strategy` and `parameters`; `parameters` is a non-empty map of finite JSON
+  scalar values.
+- `Evidence.snapshot_id` is a Python `UUID` and serializes as a JSON string.
+- A partial package has non-empty stop reasons and a
+  `collection_truncated` gap; a completed package has neither truncation
+  semantics nor partial/failed source statuses.
+
 - [ ] **Step 6: Generate committed Schemas and parity tests**
 
 Generate both schema files from model methods using sorted UTF-8 JSON. Tests compare exact parsed JSON equality with `ApplicationManifest.to_schema()` and `KnowledgePackage.to_schema()`.
@@ -919,7 +935,7 @@ def test_evidence_is_traceable_redacted_and_bounded() -> None:
     )
     evidence = builder.at("/frames/0/text_summary", "frame.text_summary")
 
-    assert evidence.snapshot_id == str(make_snapshot().snapshot_id)
+    assert evidence.snapshot_id == make_snapshot().snapshot_id
     assert evidence.json_pointer == "/frames/0/text_summary"
     assert "synthetic-secret" not in evidence.excerpt
     assert len(evidence.excerpt) <= 20
@@ -1082,6 +1098,11 @@ Create:
 - Element entities in `(frame traversal_index, element traversal_index)` order.
 
 Entity IDs use `snapshot_id` plus exact source pointer. Set `match_hints` only from non-sensitive values such as normalized final URL, Frame ancestry, tag, role, test id and locator parameters; mark them as hints, not identity.
+
+Encode Frame ancestry as the confirmed canonical JSON `array[str]` shape.
+Encode Locator parameters as the confirmed canonical JSON object containing
+exactly `strategy` and `parameters`. Reuse Task 5 `canonical_json()`; do not
+introduce a second serializer.
 
 - [ ] **Step 5: Implement atomic observed facts**
 
@@ -1259,7 +1280,7 @@ For the final byte budget, remove deterministic tails in this order:
 After each removal:
 
 - compute the reference closure;
-- prune Evidence not referenced by any remaining Fact/Locator/Observation/Inference/Gap;
+- prune Evidence not referenced by any remaining Entity/Fact/Locator/Observation/Inference/Gap;
 - update statistics;
 - set partial and output-size stop reason;
 - preserve the truncation gap;
