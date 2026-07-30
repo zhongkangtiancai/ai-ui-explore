@@ -60,6 +60,65 @@ def test_canonical_json_failure_does_not_echo_object_representation() -> None:
     assert "synthetic-secret" not in _exception_surface(captured.value)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        (1, 2),
+        {1, 2},
+        b"synthetic-secret-bytes",
+        {1: "same"},
+        {"nested": (1, 2)},
+        {"nested": {1, 2}},
+        {"bad-key": {"\ud800": "value"}},
+        "\ud800",
+    ],
+    ids=[
+        "tuple",
+        "set",
+        "bytes",
+        "non-string-key",
+        "nested-tuple",
+        "nested-set",
+        "surrogate-key",
+        "surrogate-value",
+    ],
+)
+def test_canonical_json_rejects_values_outside_strict_json_domain(
+    value: object,
+) -> None:
+    with pytest.raises(CanonicalJsonError) as captured:
+        canonical_json(value)
+
+    assert str(captured.value) == "Value cannot be encoded as canonical JSON."
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+    assert "synthetic-secret" not in _exception_surface(captured.value)
+
+
+def test_canonical_json_rejects_circular_containers() -> None:
+    value: list[object] = []
+    value.append(value)
+
+    with pytest.raises(CanonicalJsonError) as captured:
+        canonical_json(value)
+
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+
+
+def test_stable_id_rejects_python_values_that_would_collide_as_json() -> None:
+    list_id = stable_id("x", [1, 2])
+    string_key_id = stable_id("x", {"1": "same"})
+
+    with pytest.raises(CanonicalJsonError):
+        stable_id("x", (1, 2))
+    with pytest.raises(CanonicalJsonError):
+        stable_id("x", {1: "same"})
+
+    assert list_id == stable_id("x", [1, 2])
+    assert string_key_id == stable_id("x", {"1": "same"})
+
+
 def test_stable_id_uses_canonical_parts_and_repeats_exactly() -> None:
     parts = ("元素", {"b": 2, "a": 1})
     canonical_material = '["元素",{"a":1,"b":2}]'

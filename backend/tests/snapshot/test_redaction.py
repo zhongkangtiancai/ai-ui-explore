@@ -1,5 +1,6 @@
 from dataclasses import fields
 from typing import cast
+from urllib.parse import unquote, urlsplit
 
 import pytest
 
@@ -53,6 +54,68 @@ def test_redactor_drops_url_userinfo_and_preserves_non_sensitive_query_values() 
     assert result.value == "https://example.test/path?view=list&tab=details"
     assert result.count == 1
     assert result.categories == frozenset({"URL_USERINFO"})
+
+
+@pytest.mark.parametrize(
+    ("path", "secret", "category"),
+    [
+        ("/token=synthetic-secret", "synthetic-secret", "TOKEN"),
+        ("/token%3Dsynthetic-secret", "synthetic-secret", "TOKEN"),
+        ("/user/demo@example.com", "demo@example.com", "EMAIL"),
+        ("/user/demo%40example.com", "demo@example.com", "EMAIL"),
+        ("/mobile/13800138000", "13800138000", "MOBILE"),
+        ("/identity/11010519491231002X", "11010519491231002X", "CHINESE_ID"),
+    ],
+    ids=[
+        "raw-token",
+        "encoded-token",
+        "raw-email",
+        "encoded-email",
+        "mobile",
+        "chinese-id",
+    ],
+)
+def test_redactor_redacts_each_decoded_url_path_segment(
+    path: str,
+    secret: str,
+    category: str,
+) -> None:
+    result = Redactor().redact_url(
+        f"https://example.test{path}?view=list"
+    )
+
+    assert secret not in result.value
+    assert f"[REDACTED:{category}]" in unquote(urlsplit(result.value).path)
+    assert urlsplit(result.value).query == "view=list"
+    assert result.count == 1
+    assert result.categories == frozenset({category})
+
+
+def test_redactor_combines_path_query_and_userinfo_redaction() -> None:
+    result = Redactor().redact_url(
+        "https://user:pass@example.test/token=path-secret"
+        "?token=query-secret&view=list"
+    )
+
+    assert "user" not in result.value
+    assert "pass" not in result.value
+    assert "path-secret" not in result.value
+    assert "query-secret" not in result.value
+    assert "token=[REDACTED:TOKEN]" in unquote(
+        urlsplit(result.value).path
+    )
+    assert "token=%5BREDACTED%3ATOKEN%5D" in result.value
+    assert "view=list" in result.value
+    assert result.count == 3
+    assert result.categories == frozenset({"TOKEN", "URL_USERINFO"})
+
+
+def test_redactor_fails_closed_for_invalid_utf8_url_path() -> None:
+    result = Redactor().redact_url("https://example.test/private/%FF")
+
+    assert result.value == "[REDACTED:URL]"
+    assert result.count == 1
+    assert result.categories == frozenset({"URL"})
 
 
 def test_redactor_does_not_return_the_original_url_when_parsing_fails() -> None:

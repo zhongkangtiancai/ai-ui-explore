@@ -68,6 +68,90 @@ def test_load_snapshot_rejects_nonstandard_json_constants(
 
 
 @pytest.mark.parametrize(
+    ("target", "replacement"),
+    [
+        (
+            '"schema_version":"1.1"',
+            (
+                '"schema_version":"synthetic-secret-version",'
+                '"schema_version":"1.1"'
+            ),
+        ),
+        (
+            '"title":"Example page"',
+            (
+                '"title":"synthetic-secret-body",'
+                '"title":"Example page"'
+            ),
+        ),
+    ],
+    ids=["duplicate-schema-version", "nested-duplicate-key"],
+)
+def test_load_snapshot_rejects_duplicate_json_object_keys_without_leaking(
+    tmp_path: Path,
+    target: str,
+    replacement: str,
+) -> None:
+    serialized = make_snapshot().model_dump_json()
+    assert target in serialized
+    ambiguous = serialized.replace(target, replacement, 1)
+    path = tmp_path / "duplicate.json"
+    path.write_text(ambiguous, encoding="utf-8")
+
+    with pytest.raises(InvalidSnapshotError) as captured:
+        load_snapshot(path)
+
+    assert str(captured.value) == "Snapshot payload is invalid."
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+    surface = _exception_surface(captured.value)
+    assert "synthetic-secret" not in surface
+    assert replacement not in surface
+
+
+@pytest.mark.parametrize(
+    ("legacy", "field_kind"),
+    [
+        (False, "integer"),
+        (False, "boolean"),
+        (True, "integer"),
+        (True, "boolean"),
+    ],
+    ids=[
+        "v1.1-string-integer",
+        "v1.1-string-boolean",
+        "v1.0-string-integer",
+        "v1.0-string-boolean",
+    ],
+)
+def test_load_snapshot_validates_raw_payload_against_exact_version_schema(
+    tmp_path: Path,
+    legacy: bool,
+    field_kind: str,
+) -> None:
+    snapshot = make_legacy_snapshot() if legacy else make_snapshot()
+    payload = snapshot.model_dump(mode="json")
+    payload["source"]["title"] = "synthetic-secret-body"
+    if field_kind == "integer":
+        payload["page"]["viewport_width"] = "1280"
+    else:
+        payload["frames"][0]["elements"][0]["visible"] = "false"
+    path = tmp_path / "schema-invalid.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InvalidSnapshotError) as captured:
+        load_snapshot(path)
+
+    assert str(captured.value) == "Snapshot payload is invalid."
+    assert captured.value.__cause__ is None
+    assert captured.value.__context__ is None
+    surface = _exception_surface(captured.value)
+    assert "synthetic-secret" not in surface
+    assert "viewport_width" not in surface
+    assert "visible" not in surface
+
+
+@pytest.mark.parametrize(
     ("filename", "contents", "error_type", "summary"),
     [
         (

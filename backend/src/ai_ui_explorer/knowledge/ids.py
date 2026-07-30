@@ -3,6 +3,8 @@
 import json
 import re
 from hashlib import sha256
+from math import isfinite
+from typing import cast
 
 _SAFE_ID_PREFIX = re.compile(r"[a-z][a-z0-9-]{0,31}")
 _MAX_JSON_POINTER_CHARS = 4_096
@@ -67,6 +69,8 @@ def resolve_json_pointer(document: object, pointer: str) -> object:
 
 def _try_canonical_json(value: object) -> str | None:
     try:
+        if not _is_strict_json_value(value, active_containers=set()):
+            return None
         serialized = json.dumps(
             value,
             allow_nan=False,
@@ -75,9 +79,66 @@ def _try_canonical_json(value: object) -> str | None:
             sort_keys=True,
         )
         serialized.encode("utf-8")
-    except (OverflowError, TypeError, UnicodeError, ValueError):
+    except (OverflowError, RecursionError, TypeError, UnicodeError, ValueError):
         return None
     return serialized
+
+
+def _is_strict_json_value(
+    value: object,
+    *,
+    active_containers: set[int],
+) -> bool:
+    value_type = type(value)
+    if value is None or value_type is bool or value_type is int:
+        return True
+    if value_type is float:
+        return isfinite(cast(float, value))
+    if value_type is str:
+        return _is_utf8_string(cast(str, value))
+    if value_type is list:
+        list_value = cast(list[object], value)
+        container_id = id(value)
+        if container_id in active_containers:
+            return False
+        active_containers.add(container_id)
+        try:
+            return all(
+                _is_strict_json_value(
+                    item,
+                    active_containers=active_containers,
+                )
+                for item in list_value
+            )
+        finally:
+            active_containers.remove(container_id)
+    if value_type is dict:
+        dict_value = cast(dict[object, object], value)
+        container_id = id(value)
+        if container_id in active_containers:
+            return False
+        active_containers.add(container_id)
+        try:
+            return all(
+                type(key) is str
+                and _is_utf8_string(cast(str, key))
+                and _is_strict_json_value(
+                    item,
+                    active_containers=active_containers,
+                )
+                for key, item in dict_value.items()
+            )
+        finally:
+            active_containers.remove(container_id)
+    return False
+
+
+def _is_utf8_string(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        return False
+    return True
 
 
 def _try_resolve_json_pointer(

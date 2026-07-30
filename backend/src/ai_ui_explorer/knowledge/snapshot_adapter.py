@@ -2,9 +2,13 @@
 
 import json
 from enum import Enum, auto
+from functools import lru_cache
+from importlib import resources
 from pathlib import Path
 from typing import NoReturn, cast
 
+import jsonschema.exceptions as jsonschema_exceptions  # type: ignore[import-untyped]
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from pydantic import ValidationError
 
 from ai_ui_explorer.snapshot.models import (
@@ -36,6 +40,12 @@ class _LoadFailure(Enum):
     UNSUPPORTED_VERSION = auto()
 
 
+_SNAPSHOT_SCHEMA_FILES = {
+    "1.0": "snapshot-v1.schema.json",
+    "1.1": "snapshot-v1.1.schema.json",
+}
+
+
 def load_snapshot(path: Path) -> AnySnapshotDocument:
     """Load a valid 1.0 or 1.1 Snapshot without repair or version guessing."""
 
@@ -64,6 +74,7 @@ def _try_load_snapshot(
     try:
         decoded: object = json.loads(
             serialized,
+            object_pairs_hook=_object_with_unique_keys,
             parse_constant=_reject_nonstandard_json_constant,
         )
     except (RecursionError, ValueError):
@@ -72,14 +83,20 @@ def _try_load_snapshot(
         return None, _LoadFailure.INVALID
     payload = cast(dict[str, object], decoded)
 
-    version = payload.get("schema_version")
+    raw_version = payload.get("schema_version")
+    version: str
     model: type[SnapshotDocumentV1] | type[SnapshotDocument]
-    if version == "1.0":
+    if raw_version == "1.0":
+        version = "1.0"
         model = SnapshotDocumentV1
-    elif version == "1.1":
+    elif raw_version == "1.1":
+        version = "1.1"
         model = SnapshotDocument
     else:
         return None, _LoadFailure.UNSUPPORTED_VERSION
+
+    if not _payload_matches_committed_schema(payload, version):
+        return None, _LoadFailure.INVALID
 
     try:
         return model.model_validate(payload), None
@@ -90,3 +107,57 @@ def _try_load_snapshot(
 def _reject_nonstandard_json_constant(value: str) -> NoReturn:
     del value
     raise ValueError("non-standard JSON numeric constant")
+
+
+def _object_with_unique_keys(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON object key")
+        value[key] = item
+    return value
+
+
+def _payload_matches_committed_schema(
+    payload: dict[str, object],
+    version: str,
+) -> bool:
+    validator = _load_snapshot_schema_validator(version)
+    if validator is None:
+        return False
+    try:
+        validator.validate(payload)
+    except jsonschema_exceptions.ValidationError:
+        return False
+    return True
+
+
+@lru_cache(maxsize=2)
+def _load_snapshot_schema_validator(
+    version: str,
+) -> Draft202012Validator | None:
+    filename = _SNAPSHOT_SCHEMA_FILES.get(version)
+    if filename is None:
+        return None
+    try:
+        serialized = (
+            resources.files("ai_ui_explorer.snapshot")
+            .joinpath("schema", filename)
+            .read_text(encoding="utf-8")
+        )
+        decoded: object = json.loads(serialized)
+        if not isinstance(decoded, dict):
+            return None
+        schema = cast(dict[str, object], decoded)
+        Draft202012Validator.check_schema(schema)
+        return Draft202012Validator(schema)
+    except (
+        OSError,
+        RecursionError,
+        jsonschema_exceptions.SchemaError,
+        UnicodeError,
+        ValueError,
+    ):
+        return None

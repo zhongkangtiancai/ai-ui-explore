@@ -84,6 +84,37 @@ def test_evidence_uses_url_redaction_only_for_url_evidence_types() -> None:
     assert "synthetic-secret" not in evidence.excerpt
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "token=synthetic-path-secret",
+        "token%3Dsynthetic-path-secret",
+    ],
+    ids=["raw-path", "encoded-path"],
+)
+def test_evidence_redacts_url_path_secrets(path: str) -> None:
+    snapshot = make_snapshot(
+        source={
+            "requested_url": f"https://example.test/{path}",
+            "final_url": "https://example.test/",
+            "title": "Example page",
+        }
+    )
+    builder = EvidenceBuilder(
+        snapshot=snapshot,
+        redactor=Redactor(),
+        excerpt_limit=500,
+    )
+
+    evidence = builder.at(
+        "/source/requested_url",
+        "page.requested_url",
+    )
+
+    assert "synthetic-path-secret" not in evidence.excerpt
+    assert "%5BREDACTED:TOKEN%5D" in evidence.excerpt
+
+
 def test_evidence_does_not_trust_an_arbitrary_url_suffix() -> None:
     snapshot = make_snapshot(
         source={

@@ -5,7 +5,14 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from itertools import islice
 from re import _parser  # type: ignore[attr-defined]
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import (
+    parse_qsl,
+    quote,
+    unquote,
+    urlencode,
+    urlsplit,
+    urlunsplit,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +71,7 @@ _BANK_CARD_PATTERN = re.compile(r"\b\d{16,19}\b")
 _MAINLAND_MOBILE_PATTERN = re.compile(r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d{9}(?!\d)")
 _EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _CONTENT_BEARING_SCHEMES = frozenset({"data", "javascript", "vbscript"})
+_URL_PATH_SEGMENT_SAFE = "-._~!$&'()*+,;=:@"
 _MAX_CUSTOM_RULES = 32
 _MAX_CUSTOM_PATTERN_LENGTH = 512
 _SAFE_RULE_NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}")
@@ -246,6 +254,29 @@ class Redactor:
             count += 1
             categories.add("URL_USERINFO")
 
+        redacted_path_segments: list[str] = []
+        try:
+            for encoded_segment in parts.path.split("/"):
+                decoded_segment = unquote(
+                    encoded_segment,
+                    encoding="utf-8",
+                    errors="strict",
+                )
+                result = self.redact_text(decoded_segment)
+                redacted_path_segments.append(
+                    quote(
+                        result.value,
+                        safe=_URL_PATH_SEGMENT_SAFE,
+                        encoding="utf-8",
+                        errors="strict",
+                    )
+                )
+                count += result.count
+                categories.update(result.categories)
+        except UnicodeError:
+            return RedactionResult(_marker("URL"), 1, frozenset({"URL"}))
+        redacted_path = "/".join(redacted_path_segments)
+
         query_pairs: list[tuple[str, str]] = []
         for key, query_value in parse_qsl(parts.query, keep_blank_values=True):
             category = _sensitive_category(key)
@@ -270,7 +301,7 @@ class Redactor:
             categories.update(result.categories)
 
         redacted_url = urlunsplit(
-            (parts.scheme, netloc, parts.path, urlencode(query_pairs), "")
+            (parts.scheme, netloc, redacted_path, urlencode(query_pairs), "")
         )
         return RedactionResult(redacted_url, count, frozenset(categories))
 
