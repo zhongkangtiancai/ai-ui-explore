@@ -7,18 +7,19 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
 from ai_ui_explorer.snapshot.cli import build_parser, main
-from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
+from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotDocumentV1, SnapshotLimits
 
-from .factories import make_snapshot
+from .factories import make_legacy_snapshot, make_snapshot
 
-_SNAPSHOT_SCHEMA_PATH = (
+_SNAPSHOT_V1_1_SCHEMA_PATH = (
     Path(__file__).parents[2]
     / "src"
     / "ai_ui_explorer"
     / "snapshot"
     / "schema"
-    / "snapshot-v1.schema.json"
+    / "snapshot-v1.1.schema.json"
 )
+_SNAPSHOT_V1_SCHEMA_PATH = _SNAPSHOT_V1_1_SCHEMA_PATH.with_name("snapshot-v1.schema.json")
 _RUNTIME_FIELDS = frozenset(
     {
         "snapshot_id",
@@ -215,7 +216,7 @@ def test_real_cli_collects_fixture(
     output_path = tmp_path / "snapshot.json"
     serialized = output_path.read_text(encoding="utf-8")
     SnapshotDocument.model_validate(json.loads(serialized))
-    schema = json.loads(_SNAPSHOT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(_SNAPSHOT_V1_1_SCHEMA_PATH.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(json.loads(serialized))
     captured = capsys.readouterr()
@@ -247,7 +248,7 @@ def test_real_cli_identity_fixture_is_deterministic_and_safe(
         json.loads((output_directory / "snapshot.json").read_text(encoding="utf-8"))
         for output_directory in output_directories
     ]
-    schema = json.loads(_SNAPSHOT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(_SNAPSHOT_V1_1_SCHEMA_PATH.read_text(encoding="utf-8"))
     validator = Draft202012Validator(schema, format_checker=FormatChecker())
 
     for payload in payloads:
@@ -270,6 +271,14 @@ def test_real_cli_identity_fixture_is_deterministic_and_safe(
         "snapshot.json",
         "snapshot.json",
     ]
+
+
+def test_legacy_snapshot_validates_with_committed_v1_schema() -> None:
+    payload = make_legacy_snapshot().model_dump(mode="json")
+    schema = json.loads(_SNAPSHOT_V1_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(payload)
+    assert SnapshotDocumentV1.model_validate(payload).schema_version == "1.0"
 
 
 def _normalize_runtime_fields(value: object) -> object:

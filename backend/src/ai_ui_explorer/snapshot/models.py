@@ -1,5 +1,6 @@
 """Pydantic models for the versioned page snapshot contract."""
 
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Literal, Self, cast
 from uuid import UUID
@@ -58,6 +59,42 @@ class LocatorHint(BaseModel):
 
     strategy: Literal["role", "label", "testid", "id"]
     value: str
+
+
+LocatorStrategy = Literal[
+    "role",
+    "label",
+    "text",
+    "placeholder",
+    "alt",
+    "title",
+    "testid",
+    "id",
+    "name",
+    "aria",
+    "css",
+    "xpath",
+    "position",
+]
+LocatorParameter = str | bool | int | float
+
+
+class SnapshotLocatorCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    locator_id: str
+    element_ref: str
+    frame_ref: str
+    strategy: LocatorStrategy
+    parameters: dict[str, LocatorParameter]
+    source: Literal["observed", "generated"]
+    uniqueness: Literal["unique", "multiple", "unverified"]
+    match_count: int | None = Field(default=None, ge=0)
+    stability: Literal["high", "medium", "low", "unknown"]
+    confidence: float = Field(ge=0, le=1)
+    rank: int = Field(ge=1)
+    recommended: bool
+    limitations: list[str]
 
 
 class ElementSnapshot(BaseModel):
@@ -190,7 +227,7 @@ class PageSnapshot(BaseModel):
     language: str | None
 
 
-class SnapshotStatistics(BaseModel):
+class SnapshotStatisticsV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     frame_count: int = Field(ge=0)
@@ -208,17 +245,20 @@ class SnapshotStatistics(BaseModel):
         return sorted(set(value))
 
 
-class SnapshotDocument(BaseModel):
+class SnapshotStatistics(SnapshotStatisticsV1):
+    locator_candidate_count: int = Field(default=0, ge=0)
+
+
+class _SnapshotDocumentBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["1.0"] = "1.0"
     snapshot_id: UUID
     status: Literal["completed", "partial"]
     started_at: datetime
     completed_at: datetime
     source: SourceSnapshot
     limits: SnapshotLimits
-    statistics: SnapshotStatistics
+    statistics: SnapshotStatisticsV1
     page: PageSnapshot
     frames: list[FrameSnapshot]
     errors: list[SnapshotError]
@@ -255,9 +295,87 @@ class SnapshotDocument(BaseModel):
             raise ValueError("element count exceeds the approved limit")
         return self
 
+
+class SnapshotDocumentV1(_SnapshotDocumentBase):
+    schema_version: Literal["1.0"] = "1.0"
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_current_locator_statistics(
+        cls, value: object
+    ) -> object:
+        if not isinstance(value, dict):
+            return value
+        statistics = value.get("statistics")
+        if not isinstance(statistics, dict) or "locator_candidate_count" not in statistics:
+            return value
+        normalized = dict(value)
+        normalized["statistics"] = {
+            key: statistic_value
+            for key, statistic_value in statistics.items()
+            if key != "locator_candidate_count"
+        }
+        return normalized
+
+
+class SnapshotDocument(_SnapshotDocumentBase):
+    schema_version: Literal["1.1"] = "1.1"
+    statistics: SnapshotStatistics
+    locator_candidates: list[SnapshotLocatorCandidate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_locator_candidates(self) -> Self:
+        locator_ids = [candidate.locator_id for candidate in self.locator_candidates]
+        if len(locator_ids) != len(set(locator_ids)):
+            raise ValueError("locator candidate IDs must be unique")
+
+        element_ranks = [
+            (candidate.element_ref, candidate.rank)
+            for candidate in self.locator_candidates
+        ]
+        if len(element_ranks) != len(set(element_ranks)):
+            raise ValueError("locator candidate element references and ranks must be unique")
+
+        frame_ids = {frame.frame_id for frame in self.frames}
+        element_frame_ids: dict[str, set[str]] = {}
+        for frame in self.frames:
+            for element in frame.elements:
+                element_frame_ids.setdefault(element.element_id, set()).add(element.frame_id)
+
+        locator_counts = Counter(
+            candidate.element_ref for candidate in self.locator_candidates
+        )
+        if any(count > 12 for count in locator_counts.values()):
+            raise ValueError("elements cannot have more than 12 locator candidates")
+
+        for candidate in self.locator_candidates:
+            if candidate.frame_ref not in frame_ids:
+                raise ValueError("locator candidate frame_ref must exist in frames")
+            if candidate.frame_ref not in element_frame_ids.get(candidate.element_ref, set()):
+                raise ValueError(
+                    "locator candidate element_ref must exist in the referenced frame"
+                )
+            if candidate.uniqueness == "unique" and candidate.match_count != 1:
+                raise ValueError("unique locator candidates require match_count == 1")
+            if candidate.uniqueness == "multiple" and (
+                candidate.match_count is None or candidate.match_count < 2
+            ):
+                raise ValueError("multiple locator candidates require match_count >= 2")
+            if candidate.strategy == "position" and candidate.recommended:
+                raise ValueError("position locator candidates cannot be recommended")
+
+        if self.statistics.locator_candidate_count != len(self.locator_candidates):
+            raise ValueError(
+                "statistics.locator_candidate_count must equal locator candidate count"
+            )
+        return self
+
     @classmethod
     def to_schema(cls) -> dict[str, object]:
         return cast(dict[str, object], cls.model_json_schema())
+
+
+AnySnapshotDocument = SnapshotDocumentV1 | SnapshotDocument
 
 
 def _is_utc(value: datetime) -> bool:

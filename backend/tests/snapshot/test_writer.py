@@ -4,15 +4,26 @@ import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
-from ai_ui_explorer.snapshot.models import SnapshotDocument
+from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotDocumentV1
 from ai_ui_explorer.snapshot.writer import (
     SnapshotTooLargeError,
     compact_snapshot,
     write_snapshot,
 )
 
-from .factories import make_oversized_snapshot, make_snapshot
+from .factories import make_legacy_snapshot, make_oversized_snapshot, make_snapshot
+
+_SNAPSHOT_V1_1_SCHEMA_PATH = (
+    Path(__file__).parents[2]
+    / "src"
+    / "ai_ui_explorer"
+    / "snapshot"
+    / "schema"
+    / "snapshot-v1.1.schema.json"
+)
+_SNAPSHOT_V1_SCHEMA_PATH = _SNAPSHOT_V1_1_SCHEMA_PATH.with_name("snapshot-v1.schema.json")
 
 
 def test_writer_creates_schema_valid_json_atomically(tmp_path: Path) -> None:
@@ -21,9 +32,24 @@ def test_writer_creates_schema_valid_json_atomically(tmp_path: Path) -> None:
     payload = json.loads(output.read_text(encoding="utf-8"))
 
     assert output == tmp_path / "result" / "snapshot.json"
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == "1.1"
     assert SnapshotDocument.model_validate(payload).snapshot_id == make_snapshot().snapshot_id
     assert not list(output.parent.glob("*.tmp"))
+
+
+def test_writer_output_validates_with_snapshot_v1_1_schema(tmp_path: Path) -> None:
+    output = write_snapshot(make_snapshot(), tmp_path / "result")
+    schema = json.loads(_SNAPSHOT_V1_1_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    Draft202012Validator(schema).validate(json.loads(output.read_text(encoding="utf-8")))
+
+
+def test_legacy_snapshot_validates_with_committed_v1_schema() -> None:
+    payload = make_legacy_snapshot().model_dump(mode="json")
+    schema = json.loads(_SNAPSHOT_V1_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    Draft202012Validator(schema).validate(payload)
+    assert SnapshotDocumentV1.model_validate(payload).schema_version == "1.0"
 
 
 def test_compaction_marks_snapshot_partial_and_keeps_within_limit() -> None:

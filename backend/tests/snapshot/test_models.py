@@ -1,4 +1,6 @@
+import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -7,11 +9,57 @@ from ai_ui_explorer.snapshot.models import (
     Bounds,
     ScrollResult,
     SnapshotDocument,
+    SnapshotDocumentV1,
     SnapshotError,
     SnapshotLimits,
 )
 
-from .factories import make_frame, make_oversized_snapshot, make_snapshot
+from .factories import (
+    make_frame,
+    make_locator_candidate,
+    make_oversized_snapshot,
+    make_snapshot,
+)
+
+_SNAPSHOT_V1_1_SCHEMA_PATH = (
+    Path(__file__).parents[2]
+    / "src"
+    / "ai_ui_explorer"
+    / "snapshot"
+    / "schema"
+    / "snapshot-v1.1.schema.json"
+)
+
+
+def _make_valid_locator_candidate(**overrides: object) -> object:
+    values: dict[str, object] = {
+        "locator_id": "locator-main-element-0-role",
+        "element_ref": "element-0",
+        "frame_ref": "main",
+    }
+    values.update(overrides)
+    return make_locator_candidate(**values)
+
+
+def _snapshot_with_locator_candidates(
+    *, locator_candidates: list[object], **overrides: object
+) -> SnapshotDocument:
+    statistics: dict[str, object] = {
+        "frame_count": 1,
+        "completed_frame_count": 1,
+        "failed_frame_count": 0,
+        "element_count": 1,
+        "scroll_container_count": 0,
+        "redaction_count": 0,
+        "redaction_categories": [],
+        "locator_candidate_count": len(locator_candidates),
+        "duration_ms": 1,
+    }
+    return make_snapshot(
+        locator_candidates=locator_candidates,
+        statistics=statistics,
+        **overrides,
+    )
 
 
 def test_snapshot_limits_use_approved_defaults() -> None:
@@ -215,11 +263,139 @@ def test_nested_models_forbid_extra_fields() -> None:
         Bounds(x=0, y=0, width=1, height=1, unexpected=True)
 
 
-def test_snapshot_schema_is_versioned() -> None:
-    schema = SnapshotDocument.to_schema()
+def test_current_snapshot_schema_is_version_1_1() -> None:
+    snapshot = make_snapshot()
 
-    assert schema["properties"]["schema_version"]["default"] == "1.0"
-    assert schema["properties"]["status"]["enum"] == ["completed", "partial"]
+    assert snapshot.schema_version == "1.1"
+    assert SnapshotDocument.to_schema()["properties"]["schema_version"]["const"] == "1.1"
+
+
+def test_legacy_snapshot_model_accepts_version_1_0() -> None:
+    payload = make_snapshot().model_dump(mode="json")
+    payload["schema_version"] = "1.0"
+    payload.pop("locator_candidates")
+
+    legacy = SnapshotDocumentV1.model_validate(payload)
+
+    assert legacy.schema_version == "1.0"
+
+
+def test_snapshot_rejects_locator_with_missing_element_reference() -> None:
+    with pytest.raises(ValidationError):
+        _snapshot_with_locator_candidates(
+            locator_candidates=[
+                {
+                    "locator_id": "locator-missing",
+                    "element_ref": "missing",
+                    "frame_ref": "main",
+                    "strategy": "role",
+                    "parameters": {"role": "button", "name": "Submit"},
+                    "source": "observed",
+                    "uniqueness": "unique",
+                    "match_count": 1,
+                    "stability": "high",
+                    "confidence": 1.0,
+                    "rank": 1,
+                    "recommended": True,
+                    "limitations": [],
+                }
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (
+            _make_valid_locator_candidate(),
+            _make_valid_locator_candidate(
+                locator_id="locator-main-element-0-role", rank=2
+            ),
+        ),
+        (
+            _make_valid_locator_candidate(),
+            _make_valid_locator_candidate(locator_id="locator-main-element-0-role-second"),
+        ),
+    ],
+)
+def test_snapshot_rejects_duplicate_locator_ids_and_element_ranks(
+    first: object, second: object
+) -> None:
+    with pytest.raises(ValidationError):
+        _snapshot_with_locator_candidates(locator_candidates=[first, second])
+
+
+@pytest.mark.parametrize(
+    "candidate_overrides",
+    [
+        {"frame_ref": "missing"},
+        {"frame_ref": "other"},
+        {"uniqueness": "unique", "match_count": 2},
+        {"uniqueness": "multiple", "match_count": 1},
+        {"strategy": "position", "recommended": True},
+        {"confidence": -0.1},
+        {"confidence": 1.1},
+    ],
+)
+def test_snapshot_rejects_invalid_locator_candidate_rules(
+    candidate_overrides: dict[str, object],
+) -> None:
+    frames = [make_frame()]
+    if candidate_overrides.get("frame_ref") == "other":
+        frames.append(make_frame(frame_id="other", elements=[]))
+
+    with pytest.raises(ValidationError):
+        _snapshot_with_locator_candidates(
+            frames=frames,
+            locator_candidates=[_make_valid_locator_candidate(**candidate_overrides)],
+        )
+
+
+def test_snapshot_rejects_more_than_twelve_candidates_for_one_element() -> None:
+    candidates = [
+        _make_valid_locator_candidate(
+            locator_id=f"locator-main-element-0-{rank}", rank=rank
+        )
+        for rank in range(1, 14)
+    ]
+
+    with pytest.raises(ValidationError):
+        _snapshot_with_locator_candidates(locator_candidates=candidates)
+
+
+def test_snapshot_accepts_locator_candidate_for_a_known_element() -> None:
+    candidate = _make_valid_locator_candidate(
+        locator_id="locator-main-element-0-role",
+    )
+    snapshot = _snapshot_with_locator_candidates(
+        locator_candidates=[candidate],
+    )
+
+    assert snapshot.locator_candidates == [candidate]
+
+
+def test_snapshot_rejects_incorrect_locator_candidate_statistics() -> None:
+    with pytest.raises(ValidationError):
+        make_snapshot(
+            locator_candidates=[_make_valid_locator_candidate()],
+            statistics={
+                "frame_count": 1,
+                "completed_frame_count": 1,
+                "failed_frame_count": 0,
+                "element_count": 1,
+                "scroll_container_count": 0,
+                "redaction_count": 0,
+                "redaction_categories": [],
+                "locator_candidate_count": 0,
+                "duration_ms": 1,
+            },
+        )
+
+
+def test_snapshot_v1_1_schema_matches_model() -> None:
+    committed = json.loads(_SNAPSHOT_V1_1_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    assert committed == SnapshotDocument.to_schema()
 
 
 def test_snapshot_accepts_sorted_unique_redaction_categories() -> None:

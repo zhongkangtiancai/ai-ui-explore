@@ -9,7 +9,9 @@ from ai_ui_explorer.snapshot.models import (
     ElementSnapshot,
     FrameSnapshot,
     SnapshotDocument,
+    SnapshotDocumentV1,
     SnapshotLimits,
+    SnapshotLocatorCandidate,
 )
 
 _SNAPSHOT_ID = UUID("12345678-1234-5678-1234-567812345678")
@@ -61,6 +63,26 @@ def make_frame(**overrides: Any) -> FrameSnapshot:
     return FrameSnapshot.model_validate(data)
 
 
+def make_locator_candidate(**overrides: Any) -> SnapshotLocatorCandidate:
+    values: dict[str, Any] = {
+        "locator_id": "locator-root-element-0-role",
+        "element_ref": "root-element-0",
+        "frame_ref": "root",
+        "strategy": "role",
+        "parameters": {"role": "button", "name": "Submit", "exact": True},
+        "source": "observed",
+        "uniqueness": "unique",
+        "match_count": 1,
+        "stability": "high",
+        "confidence": 1.0,
+        "rank": 1,
+        "recommended": True,
+        "limitations": [],
+    }
+    values.update(overrides)
+    return SnapshotLocatorCandidate.model_validate(values)
+
+
 def make_snapshot(**overrides: Any) -> SnapshotDocument:
     frame = make_frame()
     data: dict[str, Any] = {
@@ -82,6 +104,7 @@ def make_snapshot(**overrides: Any) -> SnapshotDocument:
             "scroll_container_count": 0,
             "redaction_count": 0,
             "redaction_categories": [],
+            "locator_candidate_count": 0,
             "duration_ms": 1,
         },
         "page": {
@@ -96,6 +119,15 @@ def make_snapshot(**overrides: Any) -> SnapshotDocument:
     }
     data.update(overrides)
     return SnapshotDocument.model_validate(data)
+
+
+def make_legacy_snapshot(**overrides: Any) -> SnapshotDocumentV1:
+    data = make_snapshot().model_dump(mode="json")
+    data["schema_version"] = "1.0"
+    data.pop("locator_candidates")
+    data["statistics"].pop("locator_candidate_count")
+    data.update(overrides)
+    return SnapshotDocumentV1.model_validate(data)
 
 
 def make_oversized_snapshot(max_json_bytes: int) -> SnapshotDocument:
