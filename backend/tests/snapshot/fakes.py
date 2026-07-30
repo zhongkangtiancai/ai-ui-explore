@@ -10,6 +10,7 @@ from ai_ui_explorer.snapshot.browser import (
     RawElementObservation,
     RawErrorObservation,
     RawFrameObservation,
+    RawLocatorCandidate,
     RawPageObservation,
     RawScrollResult,
 )
@@ -59,6 +60,15 @@ class FakeSource:
     @classmethod
     def with_text(cls, value: str) -> FakeSource:
         return cls(_page(frames=[_completed_root(text=value)]))
+
+    @classmethod
+    def with_locator_candidates(
+        cls,
+        candidates: tuple[RawLocatorCandidate, ...],
+    ) -> FakeSource:
+        root = _completed_root(text="Visible page text")
+        element = replace(root.elements[0], locator_candidates=candidates)
+        return cls(_page(frames=[replace(root, elements=[element])]))
 
     @classmethod
     def with_page_fields(cls, *, frame_id: str, language: str) -> FakeSource:
@@ -195,7 +205,6 @@ def _completed_root(*, text: str, frame_id: str = "root") -> RawFrameObservation
                 selected=None,
                 expanded=None,
                 bounds=Bounds(x=0, y=0, width=100, height=32),
-                locator_hints=(),
                 locator_candidates=(),
             )
         ],

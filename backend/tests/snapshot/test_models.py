@@ -276,6 +276,9 @@ def test_legacy_snapshot_model_accepts_version_1_0() -> None:
     payload["schema_version"] = "1.0"
     payload.pop("locator_candidates")
     payload["statistics"].pop("locator_candidate_count")
+    payload["frames"][0]["elements"][0]["locator_hints"] = [
+        {"strategy": "role", "value": "button"}
+    ]
 
     legacy = SnapshotDocumentV1.model_validate(payload)
 
@@ -296,6 +299,17 @@ def test_legacy_snapshot_rejects_current_locator_statistics() -> None:
 
     with pytest.raises(ValidationError):
         SnapshotDocumentV1.model_validate(payload)
+
+
+def test_current_snapshot_rejects_legacy_element_locator_hints() -> None:
+    """Snapshot 1.1 must use only flattened locator_candidates."""
+    payload = make_snapshot().model_dump(mode="json")
+    payload["frames"][0]["elements"][0]["locator_hints"] = [
+        {"strategy": "role", "value": "button"}
+    ]
+
+    with pytest.raises(ValidationError):
+        SnapshotDocument.model_validate(payload)
 
 
 def test_snapshot_rejects_locator_with_missing_element_reference() -> None:

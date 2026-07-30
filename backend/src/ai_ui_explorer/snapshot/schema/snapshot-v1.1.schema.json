@@ -103,13 +103,6 @@
           "title": "Frame Id",
           "type": "string"
         },
-        "locator_hints": {
-          "items": {
-            "$ref": "#/$defs/LocatorHint"
-          },
-          "title": "Locator Hints",
-          "type": "array"
-        },
         "role": {
           "anyOf": [
             {
@@ -171,8 +164,7 @@
         "checked",
         "selected",
         "expanded",
-        "bounds",
-        "locator_hints"
+        "bounds"
       ],
       "title": "ElementSnapshot",
       "type": "object"
@@ -303,31 +295,6 @@
         "redaction_categories"
       ],
       "title": "FrameSnapshot",
-      "type": "object"
-    },
-    "LocatorHint": {
-      "additionalProperties": false,
-      "properties": {
-        "strategy": {
-          "enum": [
-            "role",
-            "label",
-            "testid",
-            "id"
-          ],
-          "title": "Strategy",
-          "type": "string"
-        },
-        "value": {
-          "title": "Value",
-          "type": "string"
-        }
-      },
-      "required": [
-        "strategy",
-        "value"
-      ],
-      "title": "LocatorHint",
       "type": "object"
     },
     "PageSnapshot": {

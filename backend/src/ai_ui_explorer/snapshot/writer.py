@@ -20,7 +20,7 @@ def compact_snapshot(snapshot: SnapshotDocument) -> SnapshotDocument:
     compacted documents.
     """
     if _encoded_size(snapshot) <= snapshot.limits.max_json_bytes:
-        return snapshot
+        return _validated_snapshot(snapshot)
 
     frames = list(snapshot.frames)
 
@@ -111,18 +111,33 @@ def _partial_snapshot(
 ) -> SnapshotDocument:
     """Apply the required partial status and size-limit error to compacted data."""
     errors = [*snapshot.errors, _output_size_limit_error(snapshot)]
+    remaining_element_refs = {
+        (frame.frame_id, element.element_id)
+        for frame in frames
+        for element in frame.elements
+    }
+    locator_candidates = [
+        candidate
+        for candidate in snapshot.locator_candidates
+        if (candidate.frame_ref, candidate.element_ref) in remaining_element_refs
+    ]
     statistics = snapshot.statistics.model_copy(
-        update={"element_count": sum(len(frame.elements) for frame in frames)}
+        update={
+            "element_count": sum(len(frame.elements) for frame in frames),
+            "locator_candidate_count": len(locator_candidates),
+        }
     )
-    return snapshot.model_copy(
+    candidate = snapshot.model_copy(
         update={
             "frames": frames,
+            "locator_candidates": locator_candidates,
             "statistics": statistics,
             "errors": errors,
             "status": "partial",
             "truncated": True,
         }
     )
+    return _validated_snapshot(candidate)
 
 
 def _output_size_limit_error(snapshot: SnapshotDocument) -> SnapshotError:
@@ -145,6 +160,10 @@ def _frame_positions_descending(frames: list[FrameSnapshot]) -> list[int]:
 
 def _encoded_size(snapshot: SnapshotDocument) -> int:
     return len(_serialize(snapshot).encode("utf-8"))
+
+
+def _validated_snapshot(snapshot: SnapshotDocument) -> SnapshotDocument:
+    return SnapshotDocument.model_validate(snapshot.model_dump(mode="python"))
 
 
 def _serialize(snapshot: SnapshotDocument) -> str:

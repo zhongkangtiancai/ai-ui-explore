@@ -114,6 +114,9 @@ class ElementSnapshot(BaseModel):
     selected: bool | None
     expanded: bool | None
     bounds: Bounds | None
+
+
+class ElementSnapshotV1(ElementSnapshot):
     locator_hints: list[LocatorHint]
 
 
@@ -162,7 +165,9 @@ class SnapshotError(BaseModel):
         return self
 
 
-class FrameSnapshot(BaseModel):
+class _FrameSnapshotBase[
+    ElementT: (ElementSnapshot, ElementSnapshotV1)
+](BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     frame_id: str
@@ -173,7 +178,7 @@ class FrameSnapshot(BaseModel):
     url: str
     status: Literal["completed", "partial", "failed"]
     text_summary: str
-    elements: list[ElementSnapshot]
+    elements: list[ElementT]
     scroll_results: list[ScrollResult]
     errors: list[SnapshotError]
     truncated: bool
@@ -208,6 +213,14 @@ class FrameSnapshot(BaseModel):
         ):
             raise ValueError("budget and deadline stop reasons require truncation")
         return self
+
+
+class FrameSnapshot(_FrameSnapshotBase[ElementSnapshot]):
+    pass
+
+
+class FrameSnapshotV1(_FrameSnapshotBase[ElementSnapshotV1]):
+    pass
 
 
 class SourceSnapshot(BaseModel):
@@ -249,7 +262,9 @@ class SnapshotStatistics(SnapshotStatisticsV1):
     locator_candidate_count: int = Field(default=0, ge=0)
 
 
-class _SnapshotDocumentBase(BaseModel):
+class _SnapshotDocumentBase[
+    FrameT: (FrameSnapshot, FrameSnapshotV1)
+](BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     snapshot_id: UUID
@@ -260,7 +275,7 @@ class _SnapshotDocumentBase(BaseModel):
     limits: SnapshotLimits
     statistics: SnapshotStatisticsV1
     page: PageSnapshot
-    frames: list[FrameSnapshot]
+    frames: list[FrameT]
     errors: list[SnapshotError]
     truncated: bool
 
@@ -296,10 +311,11 @@ class _SnapshotDocumentBase(BaseModel):
         return self
 
 
-class SnapshotDocumentV1(_SnapshotDocumentBase):
+class SnapshotDocumentV1(_SnapshotDocumentBase[FrameSnapshotV1]):
     schema_version: Literal["1.0"] = "1.0"
 
-class SnapshotDocument(_SnapshotDocumentBase):
+
+class SnapshotDocument(_SnapshotDocumentBase[FrameSnapshot]):
     schema_version: Literal["1.1"] = "1.1"
     statistics: SnapshotStatistics
     locator_candidates: list[SnapshotLocatorCandidate] = Field(default_factory=list)

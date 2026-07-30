@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime
 from time import monotonic
@@ -15,17 +17,20 @@ from .browser import (
     RawElementObservation,
     RawErrorObservation,
     RawFrameObservation,
+    RawLocatorCandidate,
     RawPageObservation,
 )
 from .models import (
     ElementSnapshot,
     FrameSnapshot,
-    LocatorHint,
+    LocatorParameter,
+    LocatorStrategy,
     PageSnapshot,
     ScrollResult,
     SnapshotDocument,
     SnapshotError,
     SnapshotLimits,
+    SnapshotLocatorCandidate,
     SnapshotStatistics,
     SourceSnapshot,
 )
@@ -100,11 +105,15 @@ class SnapshotCollector:
         sanitizer = _Sanitizer(self._redactor)
         page_errors = [_snapshot_error(error, sanitizer) for error in raw_page.errors]
         frames: list[FrameSnapshot] = []
+        locator_candidates: list[SnapshotLocatorCandidate] = []
         errors = list(page_errors)
         for raw_frame in sorted(raw_page.frames, key=lambda frame: frame.traversal_index):
             checkpoint = sanitizer.checkpoint()
             try:
-                frame, frame_errors = _frame_snapshot(raw_frame, sanitizer)
+                frame, frame_errors, frame_locator_candidates = _frame_snapshot(
+                    raw_frame,
+                    sanitizer,
+                )
             except (ValidationError, ValueError) as exc:
                 sanitizer.restore(checkpoint)
                 if raw_frame is root:
@@ -116,7 +125,9 @@ class SnapshotCollector:
                     sanitizer,
                     checkpoint,
                 )
+                frame_locator_candidates = []
             frames.append(frame)
+            locator_candidates.extend(frame_locator_candidates)
             errors.extend(frame_errors)
 
         truncated = any(frame.truncated for frame in frames)
@@ -149,10 +160,12 @@ class SnapshotCollector:
                 scroll_container_count=sum(len(frame.scroll_results) for frame in frames),
                 redaction_count=sanitizer.count,
                 redaction_categories=sorted(sanitizer.categories),
+                locator_candidate_count=len(locator_candidates),
                 duration_ms=duration_ms,
             ),
             page=page,
             frames=frames,
+            locator_candidates=locator_candidates,
             errors=errors,
             truncated=truncated,
         )
@@ -169,7 +182,11 @@ def _find_valid_root(raw_page: RawPageObservation) -> RawFrameObservation | None
 def _frame_snapshot(
     raw_frame: RawFrameObservation,
     sanitizer: _Sanitizer,
-) -> tuple[FrameSnapshot, list[SnapshotError]]:
+) -> tuple[
+    FrameSnapshot,
+    list[SnapshotError],
+    list[SnapshotLocatorCandidate],
+]:
     checkpoint = sanitizer.checkpoint()
     errors = [_snapshot_error(error, sanitizer) for error in raw_frame.errors]
     if raw_frame.status != "completed" and not errors:
@@ -183,12 +200,22 @@ def _frame_snapshot(
             )
         )
 
-    elements = [
-        _element_snapshot(raw_frame.frame_id, raw_element, sanitizer)
-        for raw_element in sorted(
-            raw_frame.elements, key=lambda element: element.traversal_index
+    elements: list[ElementSnapshot] = []
+    locator_candidates: list[SnapshotLocatorCandidate] = []
+    for raw_element in sorted(
+        raw_frame.elements,
+        key=lambda element: element.traversal_index,
+    ):
+        element = _element_snapshot(raw_frame.frame_id, raw_element, sanitizer)
+        elements.append(element)
+        locator_candidates.extend(
+            _locator_candidates(
+                frame_id=element.frame_id,
+                element_id=element.element_id,
+                raw_candidates=raw_element.locator_candidates,
+                sanitizer=sanitizer,
+            )
         )
-    ]
     scroll_results = [
         ScrollResult(
             container_id=sanitizer.text(result.container_id),
@@ -220,6 +247,7 @@ def _frame_snapshot(
             redaction_categories=sorted(sanitizer.categories_since(checkpoint)),
         ),
         errors,
+        locator_candidates,
     )
 
 
@@ -276,14 +304,79 @@ def _element_snapshot(
         selected=raw_element.selected,
         expanded=raw_element.expanded,
         bounds=raw_element.bounds,
-        locator_hints=[
-            LocatorHint(
-                strategy=hint.strategy,
-                value=sanitizer.text(hint.value),
-            )
-            for hint in raw_element.locator_hints
-        ],
     )
+
+
+def _locator_candidates(
+    *,
+    frame_id: str,
+    element_id: str,
+    raw_candidates: tuple[RawLocatorCandidate, ...],
+    sanitizer: _Sanitizer,
+) -> list[SnapshotLocatorCandidate]:
+    mapped: list[SnapshotLocatorCandidate] = []
+    for raw in raw_candidates:
+        parameters = {
+            key: (
+                _locator_string_parameter(key, value, sanitizer)
+                if isinstance(value, str)
+                else value
+            )
+            for key, value in raw.parameters.items()
+        }
+        limitations = [sanitizer.text(value) for value in raw.limitations]
+        mapped.append(
+            SnapshotLocatorCandidate(
+                locator_id=_stable_locator_id(
+                    frame_id,
+                    element_id,
+                    raw.strategy,
+                    parameters,
+                    raw.rank,
+                ),
+                element_ref=element_id,
+                frame_ref=frame_id,
+                strategy=raw.strategy,
+                parameters=parameters,
+                source=raw.source,
+                uniqueness=raw.uniqueness,
+                match_count=raw.match_count,
+                stability=raw.stability,
+                confidence=raw.confidence,
+                rank=raw.rank,
+                recommended=raw.recommended,
+                limitations=limitations,
+            )
+        )
+    return mapped
+
+
+def _locator_string_parameter(
+    key: str,
+    value: str,
+    sanitizer: _Sanitizer,
+) -> str:
+    normalized_key = key.casefold().replace("-", "_")
+    if normalized_key in {"url", "href", "src"} or normalized_key.endswith("_url"):
+        return sanitizer.url(value)
+    return sanitizer.text(value)
+
+
+def _stable_locator_id(
+    frame_id: str,
+    element_id: str,
+    strategy: LocatorStrategy,
+    parameters: dict[str, LocatorParameter],
+    rank: int,
+) -> str:
+    canonical = json.dumps(
+        [frame_id, element_id, strategy, parameters, rank],
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return f"locator-{strategy}-{digest[:20]}"
 
 
 def _snapshot_error(raw_error: RawErrorObservation, sanitizer: _Sanitizer) -> SnapshotError:

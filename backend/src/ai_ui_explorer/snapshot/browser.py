@@ -443,16 +443,6 @@ const collect = (root, { maxElements, maxTextChars }) => {
       selected = stateFromAria(element, "aria-selected");
     }
 
-    const locatorHints = [];
-    if (role && accessibleName) {
-      locatorHints.push({ strategy: "role", value: clip(`${role}:${accessibleName}`) || role });
-    }
-    if (label) locatorHints.push({ strategy: "label", value: label });
-    if (attributes["data-testid"]) {
-      locatorHints.push({ strategy: "testid", value: attributes["data-testid"] });
-    }
-    if (attributes.id) locatorHints.push({ strategy: "id", value: attributes.id });
-
     observations.push({
       nodeId: observationNodeIdFor(element),
       tag,
@@ -471,7 +461,6 @@ const collect = (root, { maxElements, maxTextChars }) => {
         width: bounds.width,
         height: bounds.height,
       },
-      locatorHints,
       locatorCandidates: locatorCandidates(item, bounds),
     });
   }
@@ -492,12 +481,6 @@ return {
 };
 })()
 """
-
-
-@dataclass(frozen=True, slots=True)
-class RawLocatorHint:
-    strategy: Literal["role", "label", "testid", "id"]
-    value: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -528,7 +511,6 @@ class RawElementObservation:
     selected: bool | None
     expanded: bool | None
     bounds: Bounds | None
-    locator_hints: tuple[RawLocatorHint, ...]
     locator_candidates: tuple[RawLocatorCandidate, ...]
 
 
@@ -699,11 +681,6 @@ class _RawBoundsPayload(TypedDict):
     height: float
 
 
-class _RawLocatorHintPayload(TypedDict):
-    strategy: Literal["role", "label", "testid", "id"]
-    value: str
-
-
 class _RawLocatorCandidatePayload(TypedDict):
     strategy: str
     parameters: dict[str, LocatorParameter]
@@ -730,7 +707,6 @@ class _RawElementPayload(TypedDict):
     selected: bool | None
     expanded: bool | None
     bounds: _RawBoundsPayload | None
-    locatorHints: list[_RawLocatorHintPayload]
     locatorCandidates: list[_RawLocatorCandidatePayload]
 
 
@@ -1136,10 +1112,6 @@ def _element_from_payload(
         selected=payload["selected"],
         expanded=payload["expanded"],
         bounds=bounds,
-        locator_hints=tuple(
-            RawLocatorHint(strategy=hint["strategy"], value=hint["value"])
-            for hint in payload["locatorHints"]
-        ),
         locator_candidates=locator_candidates,
     )
 

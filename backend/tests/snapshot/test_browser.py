@@ -549,7 +549,6 @@ def test_element_payload_rejects_unknown_locator_vocabulary(
         "selected": None,
         "expanded": None,
         "bounds": {"x": 0, "y": 0, "width": 100, "height": 32},
-        "locatorHints": [],
         "locatorCandidates": [candidate],
     }
 

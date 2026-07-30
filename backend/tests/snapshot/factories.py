@@ -35,7 +35,6 @@ def make_element(**overrides: Any) -> ElementSnapshot:
         "selected": None,
         "expanded": None,
         "bounds": Bounds(x=0, y=0, width=100, height=32),
-        "locator_hints": [{"strategy": "role", "value": "button"}],
     }
     data.update(overrides)
     return ElementSnapshot.model_validate(data)
@@ -126,6 +125,9 @@ def make_legacy_snapshot(**overrides: Any) -> SnapshotDocumentV1:
     data["schema_version"] = "1.0"
     data.pop("locator_candidates")
     data["statistics"].pop("locator_candidate_count")
+    for frame in data["frames"]:
+        for element in frame["elements"]:
+            element["locator_hints"] = [{"strategy": "role", "value": "button"}]
     data.update(overrides)
     return SnapshotDocumentV1.model_validate(data)
 
