@@ -3,7 +3,8 @@
 ## 文档状态
 
 - 日期：2026-07-30
-- 状态：设计讨论已完成，等待书面评审
+- 状态：已批准
+- 批准日期：2026-07-30
 - 适用范围：Sprint 2 知识模型、JSON 知识包和 Snapshot 1.1 定位知识前置扩展
 - 不代表：当前代码已经实现知识包、推断、案例生成或自动化代码生成
 
@@ -624,4 +625,3 @@ Sprint 2 只有同时满足以下条件才可完成：
 - Playwright Best Practices：https://playwright.dev/docs/best-practices
 - 人机协同登录设计：`docs/superpowers/specs/2026-07-30-human-assisted-authentication-design.md`
 - Sprint 1 结构化页面快照设计：`docs/superpowers/specs/2026-07-29-structured-page-snapshot-design.md`
-
