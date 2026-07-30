@@ -177,6 +177,37 @@
     },
     "Fact": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "object_ref": {
+              "type": "null"
+            },
+            "value": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "required": [
+            "value"
+          ]
+        },
+        {
+          "properties": {
+            "object_ref": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "value": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "object_ref"
+          ]
+        }
+      ],
       "properties": {
         "assertion_type": {
           "const": "observed",
@@ -597,6 +628,82 @@
     },
     "KnowledgeLocator": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "recommended": {
+                "const": true
+              }
+            },
+            "required": [
+              "recommended"
+            ]
+          },
+          "then": {
+            "properties": {
+              "match_count": {
+                "const": 1
+              },
+              "uniqueness": {
+                "const": "unique"
+              }
+            },
+            "required": [
+              "uniqueness",
+              "match_count"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "strategy": {
+                "const": "position"
+              }
+            },
+            "required": [
+              "strategy"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recommended": {
+                "const": false
+              }
+            },
+            "required": [
+              "recommended"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "uniqueness": {
+                "const": "unverified"
+              }
+            },
+            "required": [
+              "uniqueness"
+            ]
+          },
+          "then": {
+            "properties": {
+              "match_count": {
+                "const": null
+              },
+              "recommended": {
+                "const": false
+              }
+            },
+            "required": [
+              "match_count",
+              "recommended"
+            ]
+          }
+        }
+      ],
       "properties": {
         "confidence": {
           "maximum": 1,
@@ -947,7 +1054,54 @@
       "type": "string"
     }
   },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "stop_reasons": {
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "stop_reasons"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "partial"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "stop_reasons": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "stop_reasons"
+        ]
+      }
+    }
+  ],
   "properties": {
     "application": {
       "$ref": "#/$defs/KnowledgeApplication"
@@ -980,6 +1134,7 @@
       "items": {
         "$ref": "#/$defs/Inference"
       },
+      "maxItems": 0,
       "title": "Inferences",
       "type": "array"
     },

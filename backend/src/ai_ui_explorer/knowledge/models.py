@@ -4,16 +4,19 @@ import json
 from collections import Counter
 from datetime import datetime, timedelta
 from enum import StrEnum
+from math import isfinite
 from typing import Literal, Self, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.knowledge.manifest import normalize_origin_list
 from ai_ui_explorer.knowledge.predicates import Predicate
 
 FactValue = str | bool | int | float
 LocatorParameter = str | bool | int | float
+_JSON_SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
 
 class EntityType(StrEnum):
@@ -121,12 +124,16 @@ class MatchHintType(StrEnum):
     LOCATOR_PARAMETER = "locator_parameter"
 
 
-class _KnowledgeModel(BaseModel):
-    model_config = ConfigDict(
-        allow_inf_nan=False,
-        extra="forbid",
-        frozen=True,
-    )
+_STRUCTURED_MATCH_HINT_TYPES = frozenset(
+    {
+        MatchHintType.FRAME_ANCESTRY,
+        MatchHintType.LOCATOR_PARAMETER,
+    }
+)
+
+
+class _KnowledgeModel(DeepFrozenModel):
+    model_config = ConfigDict(allow_inf_nan=False)
 
 
 class MatchHint(_KnowledgeModel):
@@ -135,10 +142,15 @@ class MatchHint(_KnowledgeModel):
 
     @model_validator(mode="after")
     def validate_structured_value(self) -> Self:
-        if self.hint_type not in {
-            MatchHintType.FRAME_ANCESTRY,
-            MatchHintType.LOCATOR_PARAMETER,
-        }:
+        if self.hint_type not in _STRUCTURED_MATCH_HINT_TYPES:
+            if not self.value.strip():
+                raise ValueError("plain match hints require a non-empty value")
+            try:
+                parsed_plain_value = json.loads(self.value)
+            except ValueError:
+                return self
+            if isinstance(parsed_plain_value, list | dict):
+                raise ValueError("plain match hints cannot contain JSON containers")
             return self
         try:
             parsed = json.loads(self.value)
@@ -155,6 +167,49 @@ class MatchHint(_KnowledgeModel):
             ) from error
         if self.value != canonical:
             raise ValueError("structured match hints require canonical JSON")
+        if self.hint_type == MatchHintType.FRAME_ANCESTRY:
+            if (
+                not isinstance(parsed, list)
+                or not parsed
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in parsed
+                )
+            ):
+                raise ValueError(
+                    "frame ancestry must be a non-empty JSON string array"
+                )
+            return self
+        if not isinstance(parsed, dict) or set(parsed) != {
+            "strategy",
+            "parameters",
+        }:
+            raise ValueError(
+                "locator parameter hints require strategy and parameters"
+            )
+        strategy = parsed["strategy"]
+        parameters = parsed["parameters"]
+        if (
+            not isinstance(strategy, str)
+            or strategy not in {item.value for item in LocatorStrategy}
+        ):
+            raise ValueError("locator parameter hint strategy is invalid")
+        if not isinstance(parameters, dict) or not parameters:
+            raise ValueError(
+                "locator parameter hint parameters must be a non-empty object"
+            )
+        if any(
+            not key
+            or not isinstance(parameter, str | bool | int | float)
+            or (
+                isinstance(parameter, float)
+                and not isfinite(parameter)
+            )
+            for key, parameter in parameters.items()
+        ):
+            raise ValueError(
+                "locator parameter hint values must be finite JSON scalars"
+            )
         return self
 
 
@@ -275,6 +330,17 @@ class KnowledgeLocator(_KnowledgeModel):
             self.match_count is None or self.match_count < 2
         ):
             raise ValueError("multiple locators require match_count >= 2")
+        if self.uniqueness == LocatorUniqueness.UNVERIFIED and (
+            self.match_count is not None or self.recommended
+        ):
+            raise ValueError(
+                "unverified locators require no match count and cannot be recommended"
+            )
+        if self.recommended and (
+            self.uniqueness != LocatorUniqueness.UNIQUE
+            or self.match_count != 1
+        ):
+            raise ValueError("recommended locators must be verified unique")
         if self.strategy == LocatorStrategy.POSITION and self.recommended:
             raise ValueError("position locators cannot be recommended")
         return self
@@ -384,6 +450,16 @@ class KnowledgePackage(_KnowledgeModel):
     def _validate_status(self) -> None:
         if self.inferences:
             raise ValueError("Sprint 2 knowledge packages require empty inferences")
+        has_truncation_gap = any(
+            gap.reason_code == KnowledgeGapReason.COLLECTION_TRUNCATED
+            for gap in self.knowledge_gaps
+        )
+        source_is_complete = (
+            self.exploration_run.collection_status
+            == CollectionStatus.COMPLETED
+            and self.exploration_run.exploration_status
+            == ExplorationStatus.COMPLETED
+        )
         if self.status == KnowledgeStatus.PARTIAL:
             if not self.stop_reasons or any(
                 not reason.strip() for reason in self.stop_reasons
@@ -391,13 +467,23 @@ class KnowledgePackage(_KnowledgeModel):
                 raise ValueError(
                     "partial knowledge packages require non-empty stop reasons"
                 )
-        elif self.stop_reasons:
+            if not has_truncation_gap:
+                raise ValueError(
+                    "partial knowledge packages require a collection_truncated gap"
+                )
+            return
+        if self.stop_reasons or has_truncation_gap:
             raise ValueError(
-                "completed knowledge packages cannot contain stop reasons"
+                "completed knowledge packages cannot contain truncation semantics"
+            )
+        if not source_is_complete:
+            raise ValueError(
+                "completed knowledge packages require completed source statuses"
             )
 
     def _validate_unique_ids(self) -> None:
         id_groups = (
+            [self.package_id],
             [self.application.application_id],
             [self.exploration_run.exploration_run_id],
             [entity.entity_id for entity in self.entities],
@@ -535,7 +621,92 @@ class KnowledgePackage(_KnowledgeModel):
 
     @classmethod
     def to_schema(cls) -> dict[str, object]:
-        return cast(dict[str, object], cls.model_json_schema())
+        schema = cast(dict[str, object], cls.model_json_schema())
+        schema["$schema"] = _JSON_SCHEMA_DRAFT
+        definitions = _schema_object(schema["$defs"])
+        fact_schema = _schema_object(definitions["Fact"])
+        fact_schema["oneOf"] = [
+            {
+                "properties": {
+                    "value": {"not": {"type": "null"}},
+                    "object_ref": {"type": "null"},
+                },
+                "required": ["value"],
+            },
+            {
+                "properties": {
+                    "value": {"type": "null"},
+                    "object_ref": {"minLength": 1, "type": "string"},
+                },
+                "required": ["object_ref"],
+            },
+        ]
+
+        locator_schema = _schema_object(definitions["KnowledgeLocator"])
+        locator_schema["allOf"] = [
+            {
+                "if": {
+                    "properties": {"recommended": {"const": True}},
+                    "required": ["recommended"],
+                },
+                "then": {
+                    "properties": {
+                        "uniqueness": {"const": "unique"},
+                        "match_count": {"const": 1},
+                    },
+                    "required": ["uniqueness", "match_count"],
+                },
+            },
+            {
+                "if": {
+                    "properties": {"strategy": {"const": "position"}},
+                    "required": ["strategy"],
+                },
+                "then": {
+                    "properties": {"recommended": {"const": False}},
+                    "required": ["recommended"],
+                },
+            },
+            {
+                "if": {
+                    "properties": {"uniqueness": {"const": "unverified"}},
+                    "required": ["uniqueness"],
+                },
+                "then": {
+                    "properties": {
+                        "match_count": {"const": None},
+                        "recommended": {"const": False},
+                    },
+                    "required": ["match_count", "recommended"],
+                },
+            },
+        ]
+
+        properties = _schema_object(schema["properties"])
+        _schema_object(properties["inferences"])["maxItems"] = 0
+        schema["allOf"] = [
+            {
+                "if": {
+                    "properties": {"status": {"const": "completed"}},
+                    "required": ["status"],
+                },
+                "then": {
+                    "properties": {"stop_reasons": {"maxItems": 0}},
+                    "required": ["stop_reasons"],
+                },
+            },
+            {
+                "if": {
+                    "properties": {"status": {"const": "partial"}},
+                    "required": ["status"],
+                },
+                "then": {
+                    "properties": {"stop_reasons": {"minItems": 1}},
+                    "required": ["stop_reasons"],
+                },
+            },
+        ]
+        return schema
 
 
 def _require_utc(value: datetime, field_name: str) -> None:
@@ -555,3 +726,7 @@ def _require_subset(
 def _require_member(value: str, known_values: set[str], field_name: str) -> None:
     if value not in known_values:
         raise ValueError(f"{field_name} must resolve inside the package")
+
+
+def _schema_object(value: object) -> dict[str, object]:
+    return cast(dict[str, object], value)

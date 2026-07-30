@@ -1,13 +1,22 @@
 """Strict versioned Application Manifest contract."""
 
+from ipaddress import IPv4Address, IPv6Address
 from typing import Literal, Self, cast
 from urllib.parse import SplitResult, urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+import idna
+from pydantic import Field, field_validator, model_validator
+
+from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
+
+_JSON_SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
 
 def _split_http_url(value: str) -> SplitResult:
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        raise ValueError("URL is invalid") from None
     if parsed.scheme.lower() not in {"http", "https"}:
         raise ValueError("origin scheme must be http or https")
     if parsed.username is not None or parsed.password is not None:
@@ -21,14 +30,82 @@ def _split_http_url(value: str) -> SplitResult:
     return parsed
 
 
-def normalize_origin_from_url(value: str) -> str:
-    """Return the canonical HTTP(S) origin for a URL."""
+def _parse_ipv4_number(value: str) -> int | None:
+    base = 10
+    digits = value
+    if value.lower().startswith("0x"):
+        base = 16
+        digits = value[2:]
+    elif len(value) >= 2 and value.startswith("0"):
+        base = 8
+        digits = value[1:]
+    if not digits:
+        return 0
+    valid_digits = {
+        8: "01234567",
+        10: "0123456789",
+        16: "0123456789abcdefABCDEF",
+    }[base]
+    if any(character not in valid_digits for character in digits):
+        return None
+    return int(digits, base)
 
-    parsed = _split_http_url(value)
-    scheme = parsed.scheme.lower()
-    host = cast(str, parsed.hostname).lower()
+
+def _normalize_whatwg_ipv4(host: str) -> str | None:
+    parts = host.split(".")
+    if parts[-1] == "":
+        parts.pop()
+    if not parts or _parse_ipv4_number(parts[-1]) is None:
+        return None
+    if len(parts) > 4:
+        raise ValueError("IPv4 host is invalid")
+    numbers = [_parse_ipv4_number(part) for part in parts]
+    if any(number is None for number in numbers):
+        raise ValueError("IPv4 host is invalid")
+    concrete_numbers = cast(list[int], numbers)
+    if any(number > 255 for number in concrete_numbers[:-1]):
+        raise ValueError("IPv4 host is invalid")
+    last_limit = 256 ** (5 - len(concrete_numbers))
+    if concrete_numbers[-1] >= last_limit:
+        raise ValueError("IPv4 host is invalid")
+    address = concrete_numbers[-1]
+    for index, number in enumerate(concrete_numbers[:-1]):
+        address += number * (256 ** (3 - index))
+    return str(IPv4Address(address))
+
+
+def _normalize_host(host: str) -> str:
     if ":" in host:
-        host = f"[{host}]"
+        if "%" in host:
+            raise ValueError("IPv6 host is invalid")
+        try:
+            return f"[{IPv6Address(host).compressed}]"
+        except ValueError:
+            raise ValueError("IPv6 host is invalid") from None
+    try:
+        ascii_host = idna.encode(
+            host,
+            uts46=True,
+            std3_rules=True,
+        ).decode("ascii").lower()
+    except idna.IDNAError:
+        raise ValueError("host is invalid") from None
+    ipv4_host = _normalize_whatwg_ipv4(ascii_host)
+    return ipv4_host if ipv4_host is not None else ascii_host
+
+
+def _normalize_http_origin(value: str, *, exact_origin: bool) -> str:
+    parsed = _split_http_url(value)
+    if exact_origin:
+        if "?" in value:
+            raise ValueError("origin must not contain a query delimiter")
+        if "#" in value:
+            raise ValueError("origin must not contain a fragment delimiter")
+        if parsed.path not in {"", "/"}:
+            raise ValueError("origin must not contain a non-root path")
+
+    scheme = parsed.scheme.lower()
+    host = _normalize_host(cast(str, parsed.hostname))
     port = parsed.port
     if port is not None and not (
         (scheme == "http" and port == 80)
@@ -38,17 +115,16 @@ def normalize_origin_from_url(value: str) -> str:
     return f"{scheme}://{host}"
 
 
+def normalize_origin_from_url(value: str) -> str:
+    """Return the browser-equivalent HTTP(S) origin for a URL."""
+
+    return _normalize_http_origin(value, exact_origin=False)
+
+
 def normalize_manifest_origin(value: str) -> str:
     """Validate and canonicalize a declared exact origin."""
 
-    parsed = _split_http_url(value)
-    if parsed.path not in {"", "/"}:
-        raise ValueError("origin must not contain a non-root path")
-    if parsed.query:
-        raise ValueError("origin must not contain a query")
-    if parsed.fragment:
-        raise ValueError("origin must not contain a fragment")
-    return normalize_origin_from_url(value)
+    return _normalize_http_origin(value, exact_origin=True)
 
 
 def normalize_origin_list(values: list[str]) -> list[str]:
@@ -60,10 +136,8 @@ def normalize_origin_list(values: list[str]) -> list[str]:
     return sorted(normalized)
 
 
-class ApplicationManifest(BaseModel):
+class ApplicationManifest(DeepFrozenModel):
     """Versioned, non-sensitive application identity and origin boundary."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_version: Literal["1.0"] = "1.0"
     application_id: str = Field(pattern=r"^[a-z][a-z0-9-]{0,63}$")
@@ -106,4 +180,6 @@ class ApplicationManifest(BaseModel):
 
     @classmethod
     def to_schema(cls) -> dict[str, object]:
-        return cast(dict[str, object], cls.model_json_schema())
+        schema = cast(dict[str, object], cls.model_json_schema())
+        schema["$schema"] = _JSON_SCHEMA_DRAFT
+        return schema
