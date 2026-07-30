@@ -15,6 +15,7 @@ from ai_ui_explorer.snapshot.models import (
 )
 
 from .factories import (
+    make_element,
     make_frame,
     make_legacy_snapshot,
     make_locator_candidate,
@@ -241,6 +242,43 @@ def test_snapshot_requires_the_page_main_frame() -> None:
                 "language": "en",
             }
         )
+
+
+def test_snapshot_rejects_duplicate_frame_ids() -> None:
+    """Duplicate frame IDs make parent and locator references ambiguous."""
+    duplicate = make_frame(
+        frame_id="main",
+        traversal_index=1,
+        elements=[],
+    )
+
+    with pytest.raises(ValidationError):
+        make_snapshot(frames=[make_frame(), duplicate])
+
+
+def test_snapshot_rejects_missing_parent_frame_reference() -> None:
+    """A non-null parent_frame_id must identify a frame in the document."""
+    frame = make_frame(parent_frame_id="missing")
+
+    with pytest.raises(ValidationError):
+        make_snapshot(frames=[frame])
+
+
+def test_snapshot_rejects_element_frame_id_that_disagrees_with_container() -> None:
+    """Element ownership comes from its containing Frame, not its self-reported ID."""
+    misplaced = make_frame(
+        elements=[make_element(frame_id="child")],
+    )
+    child = make_frame(
+        frame_id="child",
+        parent_frame_id="main",
+        traversal_index=1,
+        depth=1,
+        elements=[],
+    )
+
+    with pytest.raises(ValidationError):
+        make_snapshot(frames=[misplaced, child])
 
 
 def test_snapshot_rejects_element_count_above_limit() -> None:

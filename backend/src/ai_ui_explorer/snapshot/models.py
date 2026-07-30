@@ -281,6 +281,24 @@ class _SnapshotDocumentBase[
 
     @model_validator(mode="after")
     def validate_status(self) -> Self:
+        frame_ids = [frame.frame_id for frame in self.frames]
+        if len(frame_ids) != len(set(frame_ids)):
+            raise ValueError("frame IDs must be unique")
+        known_frame_ids = set(frame_ids)
+        for frame in self.frames:
+            if (
+                frame.parent_frame_id is not None
+                and frame.parent_frame_id not in known_frame_ids
+            ):
+                raise ValueError("parent_frame_id must exist in frames")
+            if any(
+                element.frame_id != frame.frame_id
+                for element in frame.elements
+            ):
+                raise ValueError(
+                    "element frame_id must match its containing frame"
+                )
+
         has_incomplete_frame = any(
             frame.status != "completed"
             or frame.errors
@@ -299,7 +317,7 @@ class _SnapshotDocumentBase[
             raise ValueError("snapshot timestamps must use UTC")
         if self.completed_at < self.started_at:
             raise ValueError("completed_at must not be earlier than started_at")
-        if self.page.main_frame_id not in {frame.frame_id for frame in self.frames}:
+        if self.page.main_frame_id not in known_frame_ids:
             raise ValueError("page.main_frame_id must exist in frames")
 
         actual_element_count = sum(len(frame.elements) for frame in self.frames)
@@ -334,10 +352,11 @@ class SnapshotDocument(_SnapshotDocumentBase[FrameSnapshot]):
             raise ValueError("locator candidate element references and ranks must be unique")
 
         frame_ids = {frame.frame_id for frame in self.frames}
-        element_frame_ids: dict[str, set[str]] = {}
-        for frame in self.frames:
-            for element in frame.elements:
-                element_frame_ids.setdefault(element.element_id, set()).add(element.frame_id)
+        actual_element_refs = {
+            (frame.frame_id, element.element_id)
+            for frame in self.frames
+            for element in frame.elements
+        }
 
         locator_counts = Counter(
             candidate.element_ref for candidate in self.locator_candidates
@@ -348,7 +367,7 @@ class SnapshotDocument(_SnapshotDocumentBase[FrameSnapshot]):
         for candidate in self.locator_candidates:
             if candidate.frame_ref not in frame_ids:
                 raise ValueError("locator candidate frame_ref must exist in frames")
-            if candidate.frame_ref not in element_frame_ids.get(candidate.element_ref, set()):
+            if (candidate.frame_ref, candidate.element_ref) not in actual_element_refs:
                 raise ValueError(
                     "locator candidate element_ref must exist in the referenced frame"
                 )

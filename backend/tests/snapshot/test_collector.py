@@ -13,6 +13,31 @@ from ai_ui_explorer.snapshot.redaction import CustomRedactionRule, Redactor
 from .fakes import FakeSource
 
 _FIXED_SNAPSHOT_ID = UUID("12345678-1234-5678-1234-567812345678")
+_DEFAULT_PARAMETERS_BY_STRATEGY: dict[
+    LocatorStrategy,
+    dict[str, str | bool | int | float],
+] = {
+    "role": {"role": "button", "name": "Continue", "exact": True},
+    "label": {"value": "Continue", "exact": True},
+    "text": {"value": "Continue", "exact": True},
+    "placeholder": {"value": "Continue", "exact": True},
+    "alt": {"value": "Continue", "exact": True},
+    "title": {"value": "Continue", "exact": True},
+    "testid": {"value": "continue"},
+    "id": {"value": "continue"},
+    "name": {"value": "continue"},
+    "aria": {"attribute": "aria-label", "value": "Continue"},
+    "css": {"selector": "button"},
+    "xpath": {"expression": "//button"},
+    "position": {
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 32,
+        "viewportWidth": 1280,
+        "viewportHeight": 720,
+    },
+}
 
 
 def _raw_locator_candidate(
@@ -24,7 +49,7 @@ def _raw_locator_candidate(
 ) -> RawLocatorCandidate:
     return RawLocatorCandidate(
         strategy=strategy,
-        parameters=parameters or {"role": "button", "name": "Continue", "exact": True},
+        parameters=parameters or _DEFAULT_PARAMETERS_BY_STRATEGY[strategy],
         source="observed",
         uniqueness="unique",
         match_count=1,
@@ -70,9 +95,12 @@ def test_collector_redacts_and_flattens_locator_candidates() -> None:
                     "role": "button",
                     "name": "token=synthetic-secret",
                     "exact": True,
-                    "attempt": 2,
                 },
                 limitations=("token=limitation-secret",),
+            ),
+            _raw_locator_candidate(
+                strategy="position",
+                rank=2,
             ),
         )
     )
@@ -90,25 +118,67 @@ def test_collector_redacts_and_flattens_locator_candidates() -> None:
     assert "limitation-secret" not in serialized
     assert "[REDACTED:TOKEN]" in serialized
     assert candidate.parameters["exact"] is True
-    assert candidate.parameters["attempt"] == 2
-    assert snapshot.statistics.locator_candidate_count == 1
+    assert snapshot.locator_candidates[1].parameters["width"] == 100
+    assert snapshot.statistics.locator_candidate_count == 2
 
 
 def test_collector_generates_locator_ids_from_redacted_parameters() -> None:
     """Generating IDs before redaction would make equivalent secrets observable."""
     first = SnapshotCollector(
         source=FakeSource.with_locator_candidates(
-            (_raw_locator_candidate(parameters={"value": "token=first-secret"}),)
+            (
+                _raw_locator_candidate(
+                    strategy="testid",
+                    parameters={"value": "token=first-secret"},
+                ),
+            )
         )
     ).collect("https://example.test", SnapshotLimits())
     second = SnapshotCollector(
         source=FakeSource.with_locator_candidates(
-            (_raw_locator_candidate(parameters={"value": "token=second-secret"}),)
+            (
+                _raw_locator_candidate(
+                    strategy="testid",
+                    parameters={"value": "token=second-secret"},
+                ),
+            )
         )
     ).collect("https://example.test", SnapshotLimits())
 
+    first_json = first.model_dump_json()
+    second_json = second.model_dump_json()
+    assert "first-secret" not in first_json
+    assert "second-secret" not in second_json
+    assert "[REDACTED:TOKEN]" in first_json
+    assert "[REDACTED:TOKEN]" in second_json
     assert first.locator_candidates[0].locator_id == second.locator_candidates[0].locator_id
     assert first.locator_candidates[0].locator_id.startswith("locator-")
+
+
+@pytest.mark.parametrize(
+    ("parameters", "secret"),
+    [
+        ({"token=key-secret": "safe"}, "key-secret"),
+        ({"token": "plain-token-secret"}, "plain-token-secret"),
+        ({"password": "plain-password-secret"}, "plain-password-secret"),
+    ],
+    ids=["secret-in-key", "token-key", "password-key"],
+)
+def test_collector_rejects_locator_parameters_outside_strategy_vocabulary(
+    parameters: dict[str, str | bool | int | float],
+    secret: str,
+) -> None:
+    """Unknown or sensitive parameter keys must fail before persistence or ID hashing."""
+    collector = SnapshotCollector(
+        source=FakeSource.with_locator_candidates(
+            (_raw_locator_candidate(strategy="role", parameters=parameters),)
+        )
+    )
+
+    with pytest.raises(CollectionFailedError) as exc_info:
+        collector.collect("https://example.test", SnapshotLimits())
+
+    assert secret not in str(exc_info.value)
 
 
 def test_collector_uses_url_redaction_for_explicit_url_locator_parameters() -> None:
