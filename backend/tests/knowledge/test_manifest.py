@@ -8,7 +8,10 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import ValidationError
 
-from ai_ui_explorer.knowledge.manifest import ApplicationManifest
+from ai_ui_explorer.knowledge.manifest import (
+    ApplicationManifest,
+    normalize_manifest_origin,
+)
 
 
 def test_manifest_normalizes_and_sorts_exact_origins() -> None:
@@ -56,6 +59,37 @@ def test_manifest_uses_browser_equivalent_host_serialization(
     )
 
     assert manifest.allowed_origins == [expected]
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://09",
+        "http://08",
+        "http://019",
+        "http://1.2.3.09",
+        "http://1.2.3.08",
+    ],
+)
+def test_manifest_rejects_whatwg_invalid_numeric_hosts(origin: str) -> None:
+    with pytest.raises(ValidationError):
+        ApplicationManifest(
+            application_id="app",
+            name="App",
+            environment="test",
+            allowed_origins=[origin],
+        )
+
+
+def test_manifest_accepts_whatwg_ipv4_upper_boundary() -> None:
+    manifest = ApplicationManifest(
+        application_id="app",
+        name="App",
+        environment="test",
+        allowed_origins=["http://0xffffffff"],
+    )
+
+    assert manifest.allowed_origins == ["http://255.255.255.255"]
 
 
 @pytest.mark.parametrize(
@@ -246,6 +280,26 @@ def test_manifest_validation_error_does_not_echo_credentials() -> None:
     assert synthetic_password not in str(captured.value)
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://example.test:synthetic-secret",
+        "https://[synthetic-secret]",
+        "https://synthetic-secret_.test",
+        "https://[2001:db8::synthetic-secret]",
+    ],
+)
+def test_origin_errors_remove_secret_from_complete_exception_chain(
+    origin: str,
+) -> None:
+    synthetic_secret = "synthetic-secret"
+
+    with pytest.raises(ValueError) as captured:
+        normalize_manifest_origin(origin)
+
+    assert synthetic_secret not in exception_chain_text(captured.value)
+
+
 def test_manifest_is_frozen() -> None:
     manifest = ApplicationManifest(
         application_id="app",
@@ -299,3 +353,20 @@ def test_committed_manifest_schema_declares_draft_and_validates_structure() -> N
         validator.validate({**valid_payload, "unexpected": True})
     with pytest.raises(JsonSchemaValidationError):
         validator.validate({**valid_payload, "application_id": "Invalid_ID"})
+
+
+def exception_chain_text(error: BaseException) -> str:
+    pending = [error]
+    seen: set[int] = set()
+    parts: list[str] = []
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        parts.extend((str(current), repr(current)))
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+    return "\n".join(parts)

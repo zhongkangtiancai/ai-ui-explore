@@ -13,20 +13,26 @@ _JSON_SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
 
 
 def _split_http_url(value: str) -> SplitResult:
+    parsed: SplitResult | None
     try:
         parsed = urlsplit(value)
     except ValueError:
-        raise ValueError("URL is invalid") from None
+        parsed = None
+    if parsed is None:
+        raise ValueError("URL is invalid")
     if parsed.scheme.lower() not in {"http", "https"}:
         raise ValueError("origin scheme must be http or https")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("origin must not contain user information")
     if parsed.hostname is None:
         raise ValueError("origin must include a host")
+    invalid_port = False
     try:
         _ = parsed.port
-    except ValueError as error:
-        raise ValueError("origin port is invalid") from error
+    except ValueError:
+        invalid_port = True
+    if invalid_port:
+        raise ValueError("origin port is invalid")
     return parsed
 
 
@@ -55,7 +61,12 @@ def _normalize_whatwg_ipv4(host: str) -> str | None:
     parts = host.split(".")
     if parts[-1] == "":
         parts.pop()
-    if not parts or _parse_ipv4_number(parts[-1]) is None:
+    if not parts:
+        return None
+    last_number = _parse_ipv4_number(parts[-1])
+    if last_number is None:
+        if parts[-1].isascii() and parts[-1].isdigit():
+            raise ValueError("IPv4 host is invalid")
         return None
     if len(parts) > 4:
         raise ValueError("IPv4 host is invalid")
@@ -78,18 +89,26 @@ def _normalize_host(host: str) -> str:
     if ":" in host:
         if "%" in host:
             raise ValueError("IPv6 host is invalid")
+        normalized_ipv6: str | None
         try:
-            return f"[{IPv6Address(host).compressed}]"
+            normalized_ipv6 = IPv6Address(host).compressed
         except ValueError:
-            raise ValueError("IPv6 host is invalid") from None
+            normalized_ipv6 = None
+        if normalized_ipv6 is None:
+            raise ValueError("IPv6 host is invalid")
+        return f"[{normalized_ipv6}]"
+    encoded_host: bytes | None
     try:
-        ascii_host = idna.encode(
+        encoded_host = idna.encode(
             host,
             uts46=True,
             std3_rules=True,
-        ).decode("ascii").lower()
+        )
     except idna.IDNAError:
-        raise ValueError("host is invalid") from None
+        encoded_host = None
+    if encoded_host is None:
+        raise ValueError("host is invalid")
+    ascii_host = encoded_host.decode("ascii").lower()
     ipv4_host = _normalize_whatwg_ipv4(ascii_host)
     return ipv4_host if ipv4_host is not None else ascii_host
 

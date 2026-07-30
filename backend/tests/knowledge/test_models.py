@@ -1,9 +1,10 @@
 """Tests for the strict Sprint 2 knowledge package contract."""
 
 import json
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, get_origin
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -99,18 +100,99 @@ def test_nested_knowledge_containers_are_deeply_immutable() -> None:
         )
 
 
+def test_builtin_mutator_descriptors_cannot_bypass_deep_immutability() -> None:
+    def append_entity(package: KnowledgePackage) -> None:
+        list.append(package.entities, package.entities[0])
+
+    def clear_entities(package: KnowledgePackage) -> None:
+        list.clear(package.entities)
+
+    def replace_stop_reasons(package: KnowledgePackage) -> None:
+        list.__setitem__(
+            package.stop_reasons,
+            slice(None),
+            ["late-mutation"],
+        )
+
+    def replace_parameter(package: KnowledgePackage) -> None:
+        dict.__setitem__(
+            package.locator_candidates[0].parameters,
+            "role",
+            "link",
+        )
+
+    def update_parameters(package: KnowledgePackage) -> None:
+        dict.update(
+            package.locator_candidates[0].parameters,
+            {"name": "changed"},
+        )
+
+    def replace_sequence_storage(package: KnowledgePackage) -> None:
+        package.entities._items = ()
+
+    def delete_sequence_storage(package: KnowledgePackage) -> None:
+        del package.entities._items
+
+    def replace_mapping_storage(package: KnowledgePackage) -> None:
+        package.locator_candidates[0].parameters._items = {}
+
+    def delete_mapping_storage(package: KnowledgePackage) -> None:
+        del package.locator_candidates[0].parameters._items
+
+    for mutation in (
+        append_entity,
+        clear_entities,
+        replace_stop_reasons,
+        replace_parameter,
+        update_parameters,
+        replace_sequence_storage,
+        delete_sequence_storage,
+        replace_mapping_storage,
+        delete_mapping_storage,
+    ):
+        package = make_package()
+        before = package.model_dump(mode="json")
+        with pytest.raises(TypeError):
+            mutation(package)
+        assert package.model_dump(mode="json") == before
+
+
 def test_deeply_immutable_models_dump_copy_and_describe_public_shapes() -> None:
     package = make_package()
 
     dumped = package.model_dump(mode="python")
+    json_dumped = package.model_dump(mode="json")
     assert isinstance(dumped["entities"], list)
     assert isinstance(dumped["locator_candidates"][0]["parameters"], dict)
+    assert isinstance(json_dumped["entities"], list)
+    assert isinstance(json_dumped["locator_candidates"][0]["parameters"], dict)
     assert KnowledgePackage.model_validate(dumped) == package
+    assert json.loads(package.model_dump_json()) == json_dumped
+    canonical = json.dumps(
+        json_dumped,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    assert json.loads(canonical) == json_dumped
+    assert isinstance(package.entities, Sequence)
+    assert not isinstance(package.entities, list)
+    assert isinstance(package.locator_candidates[0].parameters, Mapping)
+    assert not isinstance(package.locator_candidates[0].parameters, dict)
+    assert get_origin(KnowledgePackage.model_fields["entities"].annotation) is list
+    assert (
+        get_origin(KnowledgeLocator.model_fields["parameters"].annotation)
+        is dict
+    )
 
     copied = package.model_copy()
     assert copied == package
     with pytest.raises(TypeError):
         copied.entities.clear()
+    deep_copied = package.model_copy(deep=True)
+    assert deep_copied == package
+    with pytest.raises(TypeError):
+        deep_copied.entities.clear()
 
     partial_values = package.model_dump(mode="python")
     partial_gap = make_gap(
@@ -723,8 +805,11 @@ def test_committed_knowledge_schema_declares_draft_and_accepts_valid_package() -
         "recommended_multiple_locator",
         "recommended_position_locator",
         "counted_unverified_locator",
+        "unique_locator_with_wrong_count",
+        "multiple_locator_with_wrong_count",
         "completed_with_stop_reason",
         "partial_without_stop_reason",
+        "partial_with_blank_stop_reason",
     ],
 )
 def test_committed_knowledge_schema_rejects_local_invariant_violations(
@@ -765,14 +850,49 @@ def test_committed_knowledge_schema_rejects_local_invariant_violations(
             match_count=1,
             recommended=False,
         )
+    elif mutation == "unique_locator_with_wrong_count":
+        payload["locator_candidates"][0].update(
+            uniqueness="unique",
+            match_count=2,
+            recommended=False,
+        )
+    elif mutation == "multiple_locator_with_wrong_count":
+        payload["locator_candidates"][0].update(
+            uniqueness="multiple",
+            match_count=1,
+            recommended=False,
+        )
     elif mutation == "completed_with_stop_reason":
         payload["stop_reasons"] = ["unexpected-truncation"]
-    else:
+    elif mutation == "partial_without_stop_reason":
         payload["status"] = "partial"
         payload["stop_reasons"] = []
+    else:
+        payload["status"] = "partial"
+        payload["stop_reasons"] = ["   "]
+        payload["knowledge_gaps"] = [
+            make_gap(
+                gap_id="gap-truncated",
+                reason_code="collection_truncated",
+            ).model_dump(mode="json")
+        ]
+        payload["statistics"]["knowledge_gap_count"] = 1
 
     with pytest.raises(JsonSchemaValidationError):
         committed_knowledge_validator().validate(payload)
+
+
+def test_schema_accepts_pydantic_valid_unverified_locator_without_count() -> None:
+    payload = make_package().model_dump(mode="json")
+    payload["locator_candidates"][0].update(
+        uniqueness="unverified",
+        recommended=False,
+    )
+    payload["locator_candidates"][0].pop("match_count")
+
+    validated = KnowledgePackage.model_validate(payload)
+    assert validated.locator_candidates[0].match_count is None
+    committed_knowledge_validator().validate(payload)
 
 
 def committed_knowledge_validator() -> Draft202012Validator:

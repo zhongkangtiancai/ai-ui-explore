@@ -677,7 +677,32 @@ class KnowledgePackage(_KnowledgeModel):
                         "match_count": {"const": None},
                         "recommended": {"const": False},
                     },
-                    "required": ["match_count", "recommended"],
+                    "required": ["recommended"],
+                },
+            },
+            {
+                "if": {
+                    "properties": {"uniqueness": {"const": "unique"}},
+                    "required": ["uniqueness"],
+                },
+                "then": {
+                    "properties": {"match_count": {"const": 1}},
+                    "required": ["match_count"],
+                },
+            },
+            {
+                "if": {
+                    "properties": {"uniqueness": {"const": "multiple"}},
+                    "required": ["uniqueness"],
+                },
+                "then": {
+                    "properties": {
+                        "match_count": {
+                            "minimum": 2,
+                            "type": "integer",
+                        }
+                    },
+                    "required": ["match_count"],
                 },
             },
         ]
@@ -701,7 +726,15 @@ class KnowledgePackage(_KnowledgeModel):
                     "required": ["status"],
                 },
                 "then": {
-                    "properties": {"stop_reasons": {"minItems": 1}},
+                    "properties": {
+                        "stop_reasons": {
+                            "items": {
+                                "pattern": r"\S",
+                                "type": "string",
+                            },
+                            "minItems": 1,
+                        }
+                    },
                     "required": ["stop_reasons"],
                 },
             },

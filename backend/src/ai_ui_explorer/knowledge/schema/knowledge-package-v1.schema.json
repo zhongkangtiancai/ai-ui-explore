@@ -698,8 +698,52 @@
               }
             },
             "required": [
-              "match_count",
               "recommended"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "uniqueness": {
+                "const": "unique"
+              }
+            },
+            "required": [
+              "uniqueness"
+            ]
+          },
+          "then": {
+            "properties": {
+              "match_count": {
+                "const": 1
+              }
+            },
+            "required": [
+              "match_count"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "uniqueness": {
+                "const": "multiple"
+              }
+            },
+            "required": [
+              "uniqueness"
+            ]
+          },
+          "then": {
+            "properties": {
+              "match_count": {
+                "minimum": 2,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "match_count"
             ]
           }
         }
@@ -1093,6 +1137,10 @@
       "then": {
         "properties": {
           "stop_reasons": {
+            "items": {
+              "pattern": "\\S",
+              "type": "string"
+            },
             "minItems": 1
           }
         },
