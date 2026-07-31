@@ -22,9 +22,13 @@ Sprint 2 不生成推断，`inferences` 固定为空。数据库、LLM、测试�
 生成和人机协同登录运行时不属于本阶段。端到端测试覆盖本地 Snapshot 1.1 到知识包、
 确定性重复输出、部分结果、Schema、证据指针和敏感 Fixture 值扫描。
 
-## Sprint 3：LLM 与上下文
+## Sprint 3：LLM 与上下文（已完成基础设施）
 
-实现 Provider 抽象、Mock、Token 预算、裁剪、缓存和调用审计。
+已实现 Provider 抽象、Mock Provider、OpenAI-compatible 非流式适配器、保守 Token 预算、
+按完整记录裁剪、Evidence 引用闭包、进程内缓存、调用审计字段和薄 Runtime。
+
+Sprint 3 不生成或持久化业务推断，不修改 `knowledge-package-v1` 的 `inferences=[]` 约束，
+不实现 Agent、Tool Calling、流式响应、多模型回退、数据库、Redis、向量检索或前端业务页面。
 
 ## Sprint 4：受控探索
 

@@ -16,10 +16,14 @@ JSON 与 Schema。Snapshot 1.1 包含分层定位器候选，同时兼容读取 
 
 Sprint 2 已实现从版本化 Application Manifest 与 Snapshot 1.0/1.1 生成确定性、可追溯、
 经 Schema 校验的 `knowledge-package.json`。当前知识只包含有证据的 observed Fact；
-不生成推断。
+`knowledge-package-v1` 的 `inferences` 仍固定为空。
 
-上述能力仍不等于完整应用探索。PostgreSQL、Redis、LLM、Agent、推断生成、人机协同
-登录运行时、业务动作、多页面导航、多身份权限探索、测试案例与自动化代码生成、
+Sprint 3 已实现 LLM 与上下文基础设施：异步 Provider 抽象、确定性 Mock Provider、
+OpenAI-compatible 非流式 Chat Completions 适配器、保守 Token 估算、按完整知识记录裁剪的
+Context Manager、Evidence 引用闭包、有界进程内缓存、脱敏调用审计字段和薄 Runtime。
+
+上述能力仍不等于完整应用探索。PostgreSQL、Redis、真实模型验收、Agent、推断生成、
+人机协同登录运行时、业务动作、多页面导航、多身份权限探索、测试案例与自动化代码生成、
 周期巡检与增量 Diff、截图和网络正文仍未实现。不得把设计文档中的这些后续规划描述
 成已实现能力。
 

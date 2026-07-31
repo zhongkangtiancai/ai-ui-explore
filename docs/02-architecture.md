@@ -9,7 +9,7 @@
 
 - 后端：Python 3.12、FastAPI、Pydantic、SQLAlchemy（后续）
 - 前端：Node.js 24、Vue 3、TypeScript、Vite、Element Plus
-- 浏览器：Playwright（后续）
+- 浏览器：Playwright（Sprint 1 已用于单 URL 被动结构化快照）
 - 持久化：PostgreSQL、JSONB、pgvector（后续）
 - 队列与缓存：Redis（后续）
 
@@ -23,4 +23,11 @@
 
 ## 当前实现
 
-当前仅有 API 健康检查和前端状态页，不包含目标架构中的业务层。
+当前已包含：
+
+- FastAPI 健康检查和 Vue 前端状态页。
+- Sprint 1 的单 URL、被动、有界、脱敏结构化页面快照 CLI。
+- Sprint 2 的确定性 Application Knowledge Model Builder、Schema、Writer 和 CLI。
+- Sprint 3 的 LLM Provider 抽象、Mock Provider、OpenAI-compatible 非流式适配器、Context Manager、保守 Token 估算、进程内缓存和薄 Runtime。
+
+仍未实现：数据库、Redis、Agent、多页面受控探索、人机协同登录运行时、多身份权限差异、巡检、测试案例生成和 Playwright 自动化代码生成。
