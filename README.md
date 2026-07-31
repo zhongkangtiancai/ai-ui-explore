@@ -29,11 +29,11 @@ Agent、人机协同登录运行时、多页面受控探索、权限差异探索
 .\scripts\bootstrap.cmd
 ```
 
-该命令先按 `backend\requirements.lock` 在项目自己的 `.venv` 精确安装 Python
-应用与测试运行依赖，再以 `--no-deps` 安装 editable 后端包，避免重新解析运行依赖；
-前端按锁文件安装到 `frontend\node_modules`。pip 自身以及 editable 构建隔离可能使用
-的 setuptools/wheel 属于 bootstrap/build 工具链，不属于应用或测试运行依赖锁定
-范围。
+该命令先检查项目自己的 `.venv` 是否具备 Python 应用与测试运行依赖；缺失时按
+`backend\requirements.lock` 精确安装，再以 `--no-deps` 安装 editable 后端包，避免
+重新解析运行依赖。前端仅在 `frontend\node_modules` 不存在时按锁文件安装。pip 自身
+以及 editable 构建隔离可能使用的 setuptools/wheel 属于 bootstrap/build 工具链，
+不属于应用或测试运行依赖锁定范围。
 
 bootstrap 还会将匹配当前 Playwright 版本的 Chromium 安装到项目自己的
 `.playwright-browsers`，不会执行全局安装。Chromium 及其运行组件会额外占用数百 MB

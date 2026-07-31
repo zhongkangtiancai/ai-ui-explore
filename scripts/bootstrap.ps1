@@ -42,23 +42,33 @@ if (-not $env:AI_UI_BOOTSTRAP_PYTHON -and -not (Test-Path -LiteralPath $VenvPyth
     } 'Python virtual environment creation'
 }
 
-Invoke-NativeChecked { & $Python -m pip install --upgrade pip } 'pip bootstrap toolchain'
-Invoke-NativeChecked {
-    & $Python -m pip install --requirement "$ProjectRoot\backend\requirements.lock"
-} 'Locked Python dependencies'
+function Test-PythonDependencies {
+    & $Python -c "import fastapi, jsonschema, mypy, playwright, pydantic_settings, pytest, ruff, uvicorn"
+    return $LASTEXITCODE -eq 0
+}
+
+if (-not (Test-PythonDependencies)) {
+    Invoke-NativeChecked { & $Python -m pip install --upgrade pip } 'pip bootstrap toolchain'
+    Invoke-NativeChecked {
+        & $Python -m pip install --requirement "$ProjectRoot\backend\requirements.lock"
+    } 'Locked Python dependencies'
+}
+
 Invoke-NativeChecked {
     & $Python -m pip install --no-deps --editable "$ProjectRoot\backend"
 } 'Editable backend package'
 Invoke-NativeChecked { & $Python -m playwright install chromium } 'Playwright Chromium'
 
-Push-Location (Join-Path $ProjectRoot 'frontend')
-try {
-    Invoke-NativeChecked {
-        & $Pnpm install --store-dir "$ProjectRoot\.pnpm-store"
-    } 'Frontend dependencies'
-}
-finally {
-    Pop-Location
+if (-not (Test-Path -LiteralPath (Join-Path $ProjectRoot 'frontend\node_modules'))) {
+    Push-Location (Join-Path $ProjectRoot 'frontend')
+    try {
+        Invoke-NativeChecked {
+            & $Pnpm install --store-dir "$ProjectRoot\.pnpm-store"
+        } 'Frontend dependencies'
+    }
+    finally {
+        Pop-Location
+    }
 }
 
 Write-Host 'Project dependencies are ready.'

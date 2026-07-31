@@ -1,10 +1,14 @@
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
+$BackendSrc = Join-Path $ProjectRoot 'backend\src'
 
 if (-not (Test-Path -LiteralPath $Python)) {
     throw 'Project virtual environment not found. Run scripts\bootstrap.cmd first.'
 }
+
+$PreviousPythonPath = $env:PYTHONPATH
+$env:PYTHONPATH = $BackendSrc
 
 Push-Location (Join-Path $ProjectRoot 'backend')
 try {
@@ -12,4 +16,5 @@ try {
 }
 finally {
     Pop-Location
+    $env:PYTHONPATH = $PreviousPythonPath
 }
