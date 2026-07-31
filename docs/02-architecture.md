@@ -29,5 +29,6 @@
 - Sprint 1 的单 URL、被动、有界、脱敏结构化页面快照 CLI。
 - Sprint 2 的确定性 Application Knowledge Model Builder、Schema、Writer 和 CLI。
 - Sprint 3 的 LLM Provider 抽象、Mock Provider、OpenAI-compatible 非流式适配器、Context Manager、保守 Token 估算、进程内缓存和薄 Runtime。
+- Sprint 4 第一切片的 URL/Origin 风险门禁、只读动作门禁、任务状态机、最小审计事件、页面状态指纹和去重基础。
 
-仍未实现：数据库、Redis、Agent、多页面受控探索、人机协同登录运行时、多身份权限差异、巡检、测试案例生成和 Playwright 自动化代码生成。
+仍未实现：数据库、Redis、Agent、多页面受控探索运行时、人机协同登录运行时、多身份权限差异、巡检、测试案例生成和 Playwright 自动化代码生成。
