@@ -262,15 +262,21 @@ def collect_with_scrolling(
     frame: Frame,
     limits: SnapshotLimits,
     deadline: float,
+    *,
+    initial_payload: _RawFramePayload | None = None,
 ) -> RawScrollingObservation:
     """Collect initial and newly revealed interactive elements."""
     _raise_deadline(deadline)
     frame.page.set_default_timeout(_remaining_milliseconds(deadline))
-    initial_batch = _collect_elements(
-        frame,
-        max_elements=limits.max_elements,
-        max_text_chars=limits.max_text_chars,
-        deadline=deadline,
+    initial_batch = (
+        _element_batch_from_payload(initial_payload)
+        if initial_payload is not None
+        else _collect_elements(
+            frame,
+            max_elements=limits.max_elements,
+            max_text_chars=limits.max_text_chars,
+            deadline=deadline,
+        )
     )
     elements = [
         replace(item.observation, traversal_index=index)
@@ -582,6 +588,10 @@ def _collect_elements(
     if raw_payload is None:
         raise PlaywrightError("Utility-world observation carrier has no payload.")
     frame_payload = cast(_RawFramePayload, json.loads(raw_payload))
+    return _element_batch_from_payload(frame_payload)
+
+
+def _element_batch_from_payload(frame_payload: _RawFramePayload) -> _ElementBatch:
     elements_payload = frame_payload["elements"]
     return _ElementBatch(
         elements=tuple(

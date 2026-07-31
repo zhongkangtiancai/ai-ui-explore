@@ -194,11 +194,15 @@ const collect = (root, { maxElements, maxTextChars }) => {
       accessibleName,
       text: clip(element.innerText),
       attributes,
+      semanticDefinitions: [],
     };
   });
+  for (const item of observed) {
+    item.semanticDefinitions = semanticDefinitions(item);
+  }
   const semanticMatchCounts = new Map();
   for (const item of observed) {
-    for (const definition of semanticDefinitions(item)) {
+    for (const definition of item.semanticDefinitions) {
       const key =
         `${definition.strategy}\\u0000${canonicalParameters(definition.parameters)}`;
       semanticMatchCounts.set(key, (semanticMatchCounts.get(key) || 0) + 1);
@@ -367,7 +371,7 @@ const collect = (root, { maxElements, maxTextChars }) => {
   };
   const locatorCandidates = (item, bounds) => {
     const candidates = [];
-    for (const definition of semanticDefinitions(item)) {
+    for (const definition of item.semanticDefinitions) {
       const candidate = makeCountedCandidate({
         ...definition,
         matchCount: countSemanticMatches(
@@ -868,6 +872,7 @@ def _observe_frame(
                 frame,
                 scrolling_limits,
                 deadline,
+                initial_payload=frame_payload,
             )
             elements = scrolling_observation.elements
             scroll_results = scrolling_observation.scroll_results

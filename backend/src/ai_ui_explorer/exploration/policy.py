@@ -1,7 +1,7 @@
 """Risk gates for controlled navigation and interaction candidates."""
 
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse, urlunparse
 
 from pydantic import Field, field_validator
 
@@ -71,7 +71,7 @@ class NavigationPolicy(DeepFrozenModel):
         if origin in set(self.allowed_origins):
             return NavigationDecision(
                 allowed=True,
-                normalized_url=url,
+                normalized_url=_normalized_url(parsed),
                 origin=origin,
                 reason_code="allowed_origin",
                 safe_message="Navigation allowed.",
@@ -79,7 +79,7 @@ class NavigationPolicy(DeepFrozenModel):
         if authentication_handoff and origin in set(self.authentication_origins):
             return NavigationDecision(
                 allowed=True,
-                normalized_url=url,
+                normalized_url=_normalized_url(parsed),
                 origin=origin,
                 reason_code="authentication_origin",
                 safe_message="Navigation allowed for authentication handoff.",
@@ -168,3 +168,19 @@ def _origin_from_parts(scheme: str, hostname: str, port: int | None) -> str:
 def _is_local_origin(origin: str) -> bool:
     parsed = urlparse(origin)
     return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+
+
+def _normalized_url(parsed: ParseResult) -> str:
+    assert parsed.hostname is not None
+    origin = _origin_from_parts(parsed.scheme, parsed.hostname, parsed.port)
+    path = parsed.path or "/"
+    return urlunparse(
+        (
+            parsed.scheme,
+            origin.removeprefix(f"{parsed.scheme}://"),
+            path,
+            "",
+            parsed.query,
+            parsed.fragment,
+        )
+    )
