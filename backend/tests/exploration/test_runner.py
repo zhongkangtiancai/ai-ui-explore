@@ -1,10 +1,15 @@
 """Bounded exploration runner tests with injected fake collectors."""
 
+import pytest
+
+from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry, NavigationCandidate
 from ai_ui_explorer.exploration.runner import ExplorationRunner, SnapshotCollectorPort
-from ai_ui_explorer.snapshot.models import SnapshotDocument
+from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
+from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
 from tests.snapshot.factories import make_snapshot
+from tests.snapshot.fakes import FakeSource
 
 
 class FakeCollector(SnapshotCollectorPort):
@@ -115,3 +120,35 @@ def test_runner_marks_partial_on_collector_failure_without_leaking_error() -> No
     assert result.stop_reasons == ["collector_failure"]
     assert result.errors[0].safe_message == "Snapshot collection failed."
     assert "secret" not in result.model_dump_json()
+
+
+def test_snapshot_collector_adapter_passes_url_and_limits_to_collector() -> None:
+    source = FakeSource.with_text("Visible page text")
+    adapter = SnapshotCollectorAdapter(
+        collector=SnapshotCollector(source=source),
+        limits=SnapshotLimits(max_elements=123, max_text_chars=45),
+    )
+
+    snapshot = adapter.collect("https://example.test/dashboard")
+
+    assert snapshot.source.requested_url == "https://example.test/dashboard"
+    assert snapshot.limits.max_elements == 123
+    assert snapshot.limits.max_text_chars == 45
+    assert source.collect_calls == 1
+
+
+def test_snapshot_collector_adapter_raises_safe_failure_surface() -> None:
+    class FailingSource(FakeSource):
+        def collect(self, url: str, limits: SnapshotLimits):
+            raise RuntimeError("synthetic failure token=secret")
+
+    adapter = SnapshotCollectorAdapter(
+        collector=SnapshotCollector(source=FailingSource.with_text("unused")),
+        limits=SnapshotLimits(),
+    )
+
+    with pytest.raises(
+        CollectionFailedError,
+        match="Controlled exploration snapshot collection failed",
+    ):
+        adapter.collect("https://example.test/?token=secret")

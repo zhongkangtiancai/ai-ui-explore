@@ -43,6 +43,6 @@ Sprint 4 分小步落地。每一步必须测试先行，并保持“已实现�
 
 已完成第一阶段和第二阶段的核心模型与纯函数能力，并完成第三阶段中的指定模块入口配置、
 只读导航候选入队、URL 去重、深度预算、页面预算、队列预算、状态去重模型和可注入
-Snapshot Collector Port 的有界 Runner 编排。
+Snapshot Collector Port 的有界 Runner 编排，以及复用 Sprint 1 `SnapshotCollector` 的适配器。
 
-尚未完成第三阶段中的真实 Playwright Collector 队列接入。当前实现不启动真实浏览器，不实现人工输入流程，不访问外部网站。
+尚未完成第三阶段中的真实浏览器多页面端到端验收和从 Snapshot 自动提取导航候选。当前实现不实现人工输入流程，不访问外部网站。

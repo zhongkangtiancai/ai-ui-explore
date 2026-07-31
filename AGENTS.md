@@ -22,10 +22,10 @@ Sprint 3 已实现 LLM 与上下文基础设施：异步 Provider 抽象、确�
 OpenAI-compatible 非流式 Chat Completions 适配器、保守 Token 估算、按完整知识记录裁剪的
 Context Manager、Evidence 引用闭包、有界进程内缓存、脱敏调用审计字段和薄 Runtime。
 
-Sprint 4 已实现前两切片：URL/Origin 风险门禁、只读动作门禁、任务状态机、最小审计事件、
+Sprint 4 已实现前三切片：URL/Origin 风险门禁、只读动作门禁、任务状态机、最小审计事件、
 页面状态指纹、状态去重、指定模块入口配置、有界探索队列模型和可注入 Collector Port 的
-有界 Runner 编排。当前切片不启动浏览器，不接入真实 Playwright Collector 执行多页面探索，
-也不实现人工登录运行时。
+有界 Runner 编排，并提供复用 Sprint 1 `SnapshotCollector` 的适配器。当前切片尚未进行真实
+浏览器多页面端到端验收，尚未从页面快照自动提取导航候选，也不实现人工登录运行时。
 
 上述能力仍不等于完整应用探索。PostgreSQL、Redis、真实模型验收、Agent、推断生成、
 人机协同登录运行时、业务动作、多页面导航运行时、多身份权限探索、测试案例与自动化代码生成、

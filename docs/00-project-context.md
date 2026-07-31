@@ -34,8 +34,9 @@ Sprint 3 已实现 LLM 与上下文基础设施：Provider 抽象、确定性 Mo
 
 Sprint 4 已进入第二切片：实现受控探索的纯模型基础，包括 URL/Origin 风险门禁、只读
 动作门禁、任务状态机、最小审计事件、页面状态指纹、状态去重、指定模块入口配置和
-有界探索队列模型，以及可注入 Snapshot Collector Port 的有界 Runner 编排。当前 Sprint 4
-切片不启动浏览器、不接入真实 Playwright Collector 执行多页面探索、不实现人工登录运行时。
+有界探索队列模型、可注入 Snapshot Collector Port 的有界 Runner 编排，以及复用 Sprint 1
+`SnapshotCollector` 的适配器。当前 Sprint 4 切片尚未进行真实浏览器多页面端到端验收，
+尚未从页面快照自动提取导航候选，也不实现人工登录运行时。
 
 这些能力不是完整应用探索。截图、网络正文、登录运行时、业务动作、多页面导航、真实
 模型验收、Agent、推断生成、数据库、多身份权限探索、测试案例/自动化代码生成和巡检仍未

@@ -1,5 +1,6 @@
 """Sprint 4 controlled exploration foundations."""
 
+from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
 from ai_ui_explorer.exploration.policy import (
     ActionDecision,
     ActionGate,
@@ -58,6 +59,7 @@ __all__ = [
     "NavigationPolicy",
     "NavigationPolicyViolation",
     "SnapshotCollectorPort",
+    "SnapshotCollectorAdapter",
     "SnapshotVisitResult",
     "StateDeduplicator",
     "StateFingerprint",
