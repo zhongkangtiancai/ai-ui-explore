@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 ai-ui-snapshot = "ai_ui_explorer.snapshot.cli:main"
+ai-ui-knowledge = "ai_ui_explorer.knowledge.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -26,13 +27,14 @@ dev = [
     "pytest==8.4.1",
     "pytest-cov==6.2.1",
     "ruff==0.12.5",
+    "setuptools==80.9.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"ai_ui_explorer" = ["py.typed", "snapshot/schema/*.json"]
+"ai_ui_explorer" = ["py.typed", "snapshot/schema/*.json", "knowledge/schema/*.json"]
 
 [tool.pytest.ini_options]
 addopts = "-q -p no:cacheprovider"
@@ -49,4 +51,8 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["ai_ui_explorer"]
+files = ["src/ai_ui_explorer"]
+
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
+ignore_missing_imports = true

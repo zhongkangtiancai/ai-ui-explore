@@ -7,8 +7,8 @@ from importlib import resources
 from pathlib import Path
 from typing import NoReturn, cast
 
-import jsonschema.exceptions as jsonschema_exceptions  # type: ignore[import-untyped]
-from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+import jsonschema.exceptions as jsonschema_exceptions
+from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from ai_ui_explorer.snapshot.models import (

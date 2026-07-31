@@ -530,6 +530,23 @@ class KnowledgePackage(_KnowledgeModel):
             for entity_id, entity_type in entity_types.items()
             if entity_type == EntityType.FRAME
         }
+        element_frame_refs: dict[str, str] = {}
+        for fact in self.facts:
+            if fact.predicate != Predicate.ELEMENT_LOCATED_IN:
+                continue
+            if (
+                fact.subject_ref not in element_ids
+                or fact.object_ref not in frame_ids
+            ):
+                raise ValueError(
+                    "element.located_in must relate an Element to a Frame"
+                )
+            if fact.subject_ref in element_frame_refs:
+                raise ValueError(
+                    "Elements cannot have multiple frame relationships"
+                )
+            assert fact.object_ref is not None
+            element_frame_refs[fact.subject_ref] = fact.object_ref
         element_ranks: set[tuple[str, int]] = set()
         for locator in self.locator_candidates:
             if locator.element_ref not in element_ids:
@@ -539,6 +556,10 @@ class KnowledgePackage(_KnowledgeModel):
             if locator.frame_ref not in frame_ids:
                 raise ValueError(
                     "locator frame_ref must resolve to a Frame entity"
+                )
+            if element_frame_refs.get(locator.element_ref) != locator.frame_ref:
+                raise ValueError(
+                    "locator frame_ref must match the Element frame relationship"
                 )
             rank_key = (locator.element_ref, locator.rank)
             if rank_key in element_ranks:

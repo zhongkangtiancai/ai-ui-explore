@@ -475,6 +475,66 @@ def test_locator_uniqueness_matches_count(
         make_locator(uniqueness=uniqueness, match_count=match_count)
 
 
+def test_package_rejects_locator_frame_that_differs_from_element_relationship() -> None:
+    package = make_package()
+    other_frame = make_entity(
+        entity_id="frame-other",
+        entity_type="frame",
+        label="other",
+        match_hints=[
+            MatchHint(hint_type="frame_ancestry", value='["other"]')
+        ],
+    )
+    mismatched_locator = make_locator(frame_ref="frame-other")
+
+    with pytest.raises(ValidationError):
+        KnowledgePackage.model_validate(
+            package.model_copy(
+                update={
+                    "entities": [*package.entities, other_frame],
+                    "locator_candidates": [mismatched_locator],
+                    "statistics": package.statistics.model_copy(
+                        update={"entity_count": len(package.entities) + 1}
+                    ),
+                }
+            ).model_dump(mode="python")
+        )
+
+
+def test_package_rejects_multiple_element_frame_relationships() -> None:
+    package = make_package()
+    other_frame = make_entity(
+        entity_id="frame-other",
+        entity_type="frame",
+        label="other",
+        match_hints=[
+            MatchHint(hint_type="frame_ancestry", value='["other"]')
+        ],
+    )
+    duplicate_relationship = make_fact(
+        fact_id="fact-element-second-frame",
+        predicate=Predicate.ELEMENT_LOCATED_IN,
+        value=None,
+        object_ref="frame-other",
+    )
+
+    with pytest.raises(ValidationError):
+        KnowledgePackage.model_validate(
+            package.model_copy(
+                update={
+                    "entities": [*package.entities, other_frame],
+                    "facts": [*package.facts, duplicate_relationship],
+                    "statistics": package.statistics.model_copy(
+                        update={
+                            "entity_count": len(package.entities) + 1,
+                            "fact_count": len(package.facts) + 1,
+                        }
+                    ),
+                }
+            ).model_dump(mode="python")
+        )
+
+
 def test_time_fields_require_aware_utc_values_and_valid_ranges() -> None:
     with pytest.raises(ValidationError):
         make_exploration_run(started_at=datetime(2026, 7, 30))

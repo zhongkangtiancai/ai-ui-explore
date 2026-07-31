@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from ai_ui_explorer.knowledge.manifest import ApplicationManifest
 from ai_ui_explorer.knowledge.models import (
     Evidence,
     ExplorationRun,
@@ -24,6 +25,18 @@ SNAPSHOT_ID = UUID("12345678-1234-5678-1234-567812345678")
 OBSERVED_FROM = datetime(2026, 7, 30, 0, 0, 0, tzinfo=UTC)
 OBSERVED_TO = datetime(2026, 7, 30, 0, 0, 1, tzinfo=UTC)
 SNAPSHOT_SHA256 = "a" * 64
+
+
+def make_manifest(**overrides: Any) -> ApplicationManifest:
+    values: dict[str, Any] = {
+        "application_id": "example-app",
+        "name": "示例应用",
+        "environment": "test",
+        "allowed_origins": ["https://example.test"],
+        "authentication_origins": ["https://sso.example.test"],
+    }
+    values.update(overrides)
+    return ApplicationManifest.model_validate(values)
 
 
 def make_application(**overrides: Any) -> KnowledgeApplication:
@@ -192,7 +205,15 @@ def make_package(**overrides: Any) -> KnowledgePackage:
     ]
     locators = [make_locator()]
     evidence = [make_evidence()]
-    facts = [make_fact()]
+    facts = [
+        make_fact(),
+        make_fact(
+            fact_id="fact-element-located-in",
+            predicate=Predicate.ELEMENT_LOCATED_IN,
+            value=None,
+            object_ref="frame-main",
+        ),
+    ]
     observations: list[object] = []
     inferences: list[object] = []
     gaps: list[KnowledgeGap] = []

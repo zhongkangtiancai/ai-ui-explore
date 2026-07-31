@@ -12,11 +12,16 @@
 
 当前仓库包含可运行的前后端工程骨架，以及 Sprint 1 的 Playwright 单 URL 结构化页面
 快照：通过 CLI 执行有预算、被动、脱敏的页面、Frame、元素和滚动采集，并输出版本化
-JSON 与 Schema。该能力不等于完整应用探索，也不支持登录、业务动作、多页面导航、
-截图或网络正文。
+JSON 与 Schema。Snapshot 1.1 包含分层定位器候选，同时兼容读取 Snapshot 1.0。
 
-PostgreSQL、Redis、LLM、Agent、知识模型、权限探索和巡检仍未实现。不得把设计文档中
-这些后续规划描述成已实现能力。
+Sprint 2 已实现从版本化 Application Manifest 与 Snapshot 1.0/1.1 生成确定性、可追溯、
+经 Schema 校验的 `knowledge-package.json`。当前知识只包含有证据的 observed Fact；
+不生成推断。
+
+上述能力仍不等于完整应用探索。PostgreSQL、Redis、LLM、Agent、推断生成、人机协同
+登录运行时、业务动作、多页面导航、多身份权限探索、测试案例与自动化代码生成、
+周期巡检与增量 Diff、截图和网络正文仍未实现。不得把设计文档中的这些后续规划描述
+成已实现能力。
 
 ## 执行要求
 

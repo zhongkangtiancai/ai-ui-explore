@@ -462,6 +462,44 @@ def test_snapshot_rejects_incorrect_locator_candidate_statistics() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("strategy", "parameters"),
+    [
+        ("role", {"role": "button", "unexpected": "value"}),
+        ("role", {"name": "Submit"}),
+        ("label", {"value": "Account", "exact": "yes"}),
+        ("testid", {}),
+        ("aria", {"attribute": "title", "value": "Open"}),
+        ("css", {"selector": "x" * 257}),
+        ("css", {"selector": "main > section > div > span > button"}),
+        ("xpath", {"expression": "//main/section/div/span/button"}),
+        ("position", {"x": "10", "y": 20}),
+    ],
+)
+def test_snapshot_rejects_unsafe_locator_parameter_contract(
+    strategy: str,
+    parameters: dict[str, object],
+) -> None:
+    candidate = {
+        "locator_id": f"locator-main-element-0-{strategy}",
+        "element_ref": "element-0",
+        "frame_ref": "main",
+        "strategy": strategy,
+        "parameters": parameters,
+        "source": "observed",
+        "uniqueness": "unique",
+        "match_count": 1,
+        "stability": "high",
+        "confidence": 1.0,
+        "rank": 1,
+        "recommended": strategy != "position",
+        "limitations": [],
+    }
+
+    with pytest.raises(ValidationError):
+        _snapshot_with_locator_candidates(locator_candidates=[candidate])
+
+
 def test_snapshot_v1_1_schema_matches_model() -> None:
     committed = json.loads(_SNAPSHOT_V1_1_SCHEMA_PATH.read_text(encoding="utf-8"))
 

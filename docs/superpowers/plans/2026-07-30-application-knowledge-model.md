@@ -1112,7 +1112,14 @@ Map finite facts for:
 - Frame: parent、name、URL、status、depth、truncated;
 - Element: located_in、tag、role、accessible_name、text、visible、enabled、checked、selected、expanded and whitelisted attributes;
 - Locator: locates Element、strategy、uniqueness、stability and recommended status;
-- Exploration: source snapshot、collection status and access/content status.
+- Exploration: source snapshot and collection status.
+
+Confirmed provenance clarification: `access_status` and `content_status` are
+deterministic `ExplorationRun` classification metadata, not directly observed
+Facts, because Snapshot does not expose source fields that independently prove
+those conclusions. Only collection status may be emitted as an observed Fact
+when its Snapshot source pointer directly supports it. Controlled access errors
+remain Observations with direct Evidence.
 
 Every Fact is created through one helper:
 
@@ -1419,7 +1426,7 @@ Do not add `backend/requirements.lock` if its content does not change.
 - Documents: Snapshot 1.1 and `ai-ui-knowledge`
 - Verifies: complete local Snapshot 1.1 -> Knowledge Package flow
 
-- [ ] **Step 1: Write failing packaging and end-to-end tests**
+- [x] **Step 1: Write failing packaging and end-to-end tests**
 
 Test installed package resources:
 
@@ -1446,7 +1453,7 @@ End-to-end test:
 8. assert `inferences == []`;
 9. scan serialized output for synthetic password/token/input values.
 
-- [ ] **Step 2: Run end-to-end test and verify failure**
+- [x] **Step 2: Run end-to-end test and verify failure**
 
 Run:
 
@@ -1456,7 +1463,7 @@ Run:
 
 Expected: FAIL until packaging and the fixture manifest are complete.
 
-- [ ] **Step 3: Package all Schemas**
+- [x] **Step 3: Package all Schemas**
 
 Update:
 
@@ -1474,7 +1481,7 @@ runtime dependency metadata. Regenerate the lock only if the repository's
 existing lock workflow detects a metadata difference; do not upgrade unrelated
 packages.
 
-- [ ] **Step 4: Add exact Schema parity to the quality gate**
+- [x] **Step 4: Add exact Schema parity to the quality gate**
 
 Add a backend test or a small checked Python module invoked by `scripts/check.ps1` that compares:
 
@@ -1484,7 +1491,7 @@ Add a backend test or a small checked Python module invoked by `scripts/check.ps
 
 against their committed JSON files. Keep Snapshot 1.0 as an immutable compatibility artifact and validate it against a known legacy fixture.
 
-- [ ] **Step 5: Update documentation**
+- [x] **Step 5: Update documentation**
 
 README must include:
 
@@ -1500,7 +1507,7 @@ README must include:
 
 `docs/03-knowledge-model.md` must replace the baseline-only wording with implemented entities and evidence boundaries. `docs/07-roadmap.md` marks Sprint 2 complete only after all acceptance commands pass.
 
-- [ ] **Step 6: Run focused end-to-end acceptance**
+- [x] **Step 6: Run focused end-to-end acceptance**
 
 Run:
 
@@ -1511,7 +1518,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 7: Run the complete repository quality gate**
+- [x] **Step 7: Run the complete repository quality gate**
 
 Run:
 
@@ -1531,7 +1538,7 @@ Expected:
 - production frontend build passes;
 - all committed Schema parity checks pass.
 
-- [ ] **Step 8: Perform deterministic and partial CLI acceptance**
+- [x] **Step 8: Perform deterministic and partial CLI acceptance**
 
 Using only the local controlled fixture:
 
@@ -1544,7 +1551,7 @@ Using only the local controlled fixture:
 7. scan for forbidden synthetic secret values;
 8. confirm no screenshot、network body、Cookie、Storage State or extra output file exists.
 
-- [ ] **Step 9: Inspect Git scope**
+- [x] **Step 9: Inspect Git scope**
 
 Run:
 

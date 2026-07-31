@@ -22,10 +22,12 @@ V1.1 再实现周期巡检和增量 Diff。
 
 ## 当前实现
 
-当前已建立前后端可运行工程骨架，并实现 Sprint 1 的 Playwright 单 URL 有界结构化
-快照采集：通过 CLI 被动采集页面、Frame、元素和滚动结果，经过脱敏后输出版本化 JSON
-与 Schema。
+当前已建立前后端可运行工程骨架，实现 Sprint 1 的 Playwright 单 URL 有界结构化
+快照采集，并实现 Sprint 2 的确定性 Application Knowledge Model 转换闭环：从
+Application Manifest 和已校验的 Snapshot 1.0/1.1 生成独立、脱敏、Schema 校验且
+可追溯的 `knowledge-package.json`。Snapshot 1.1 包含分层、排序、当前 Frame 内校验的
+定位器候选；Snapshot 1.0 继续兼容读取。
 
-该能力不是完整应用探索。截图、网络正文、登录、业务动作、多页面导航、LLM、Agent、
-数据库、权限探索和巡检仍未实现；上述 V1/V1.1 产品能力除 Sprint 1 有界快照外均为
-规划。
+这些能力不是完整应用探索。截图、网络正文、登录运行时、业务动作、多页面导航、LLM、
+Agent、推断生成、数据库、多身份权限探索、测试案例/自动化代码生成和巡检仍未实现；
+上述 V1/V1.1 产品能力中未在本段明确列为已实现的部分均为规划。

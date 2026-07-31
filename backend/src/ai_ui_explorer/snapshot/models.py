@@ -1,5 +1,6 @@
 """Pydantic models for the versioned page snapshot contract."""
 
+import re
 from collections import Counter
 from datetime import datetime, timedelta
 from typing import Literal, Self, cast
@@ -77,6 +78,12 @@ LocatorStrategy = Literal[
     "position",
 ]
 LocatorParameter = str | bool | int | float
+_SEMANTIC_LOCATOR_STRATEGIES = frozenset(
+    {"label", "text", "placeholder", "alt", "title"}
+)
+_SINGLE_VALUE_LOCATOR_STRATEGIES = frozenset({"testid", "id", "name"})
+_STRUCTURAL_TAG_PATTERN = re.compile(r"[a-z][a-z0-9-]*")
+_ARIA_ATTRIBUTE_PATTERN = re.compile(r"aria-[a-z][a-z0-9-]*")
 
 
 class SnapshotLocatorCandidate(BaseModel):
@@ -95,6 +102,69 @@ class SnapshotLocatorCandidate(BaseModel):
     rank: int = Field(ge=1)
     recommended: bool
     limitations: list[str]
+
+    @model_validator(mode="after")
+    def validate_parameters(self) -> Self:
+        parameters = self.parameters
+        if self.strategy == "role":
+            _require_parameter_keys(
+                parameters,
+                required={"role"},
+                optional={"name", "exact"},
+            )
+            _require_nonempty_string(parameters["role"])
+            _require_optional_string(parameters, "name")
+            _require_optional_bool(parameters, "exact")
+        elif self.strategy in _SEMANTIC_LOCATOR_STRATEGIES:
+            _require_parameter_keys(
+                parameters,
+                required={"value"},
+                optional={"exact"},
+            )
+            _require_nonempty_string(parameters["value"])
+            _require_optional_bool(parameters, "exact")
+        elif self.strategy in _SINGLE_VALUE_LOCATOR_STRATEGIES:
+            _require_parameter_keys(parameters, required={"value"})
+            _require_nonempty_string(parameters["value"])
+        elif self.strategy == "aria":
+            _require_parameter_keys(
+                parameters,
+                required={"attribute", "value"},
+            )
+            attribute = _require_nonempty_string(parameters["attribute"])
+            if _ARIA_ATTRIBUTE_PATTERN.fullmatch(attribute) is None:
+                raise ValueError("aria locator attribute must be an aria-* name")
+            _require_nonempty_string(parameters["value"])
+        elif self.strategy == "css":
+            _require_parameter_keys(parameters, required={"selector"})
+            selector = _require_nonempty_string(parameters["selector"])
+            _validate_bounded_structural_selector(selector, separator=" > ")
+        elif self.strategy == "xpath":
+            _require_parameter_keys(parameters, required={"expression"})
+            expression = _require_nonempty_string(parameters["expression"])
+            if not expression.startswith("//"):
+                raise ValueError("XPath locator must start with //")
+            _validate_bounded_structural_selector(
+                expression.removeprefix("//"),
+                separator="/",
+            )
+        else:
+            _require_parameter_keys(
+                parameters,
+                required={"x", "y"},
+                optional={
+                    "width",
+                    "height",
+                    "viewportWidth",
+                    "viewportHeight",
+                },
+            )
+            if any(
+                isinstance(value, bool) or not isinstance(value, int | float)
+                for value in parameters.values()
+            ):
+                raise ValueError("position locator parameters must be numbers")
+        return self
 
 
 class ElementSnapshot(BaseModel):
@@ -392,6 +462,54 @@ class SnapshotDocument(_SnapshotDocumentBase[FrameSnapshot]):
 
 
 AnySnapshotDocument = SnapshotDocumentV1 | SnapshotDocument
+
+
+def _require_parameter_keys(
+    parameters: dict[str, LocatorParameter],
+    *,
+    required: set[str],
+    optional: set[str] | None = None,
+) -> None:
+    allowed = required | (optional or set())
+    if not required <= parameters.keys() or not parameters.keys() <= allowed:
+        raise ValueError("locator parameters do not match the strategy contract")
+
+
+def _require_nonempty_string(value: LocatorParameter) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("locator text parameters must be non-empty strings")
+    return value
+
+
+def _require_optional_string(
+    parameters: dict[str, LocatorParameter],
+    key: str,
+) -> None:
+    if key in parameters:
+        _require_nonempty_string(parameters[key])
+
+
+def _require_optional_bool(
+    parameters: dict[str, LocatorParameter],
+    key: str,
+) -> None:
+    if key in parameters and not isinstance(parameters[key], bool):
+        raise ValueError("locator exact parameter must be a boolean")
+
+
+def _validate_bounded_structural_selector(
+    value: str,
+    *,
+    separator: str,
+) -> None:
+    if len(value) > 256:
+        raise ValueError("structural locator exceeds the length limit")
+    segments = value.split(separator)
+    if (
+        not 1 <= len(segments) <= 4
+        or any(_STRUCTURAL_TAG_PATTERN.fullmatch(item) is None for item in segments)
+    ):
+        raise ValueError("structural locator exceeds the approved shape")
 
 
 def _is_utc(value: datetime) -> bool:

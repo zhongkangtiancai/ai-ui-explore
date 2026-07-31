@@ -12,9 +12,15 @@
 本阶段完成的是结构化快照采集闭环，不是完整应用探索。登录、业务动作、多页面导航、
 权限差异、截图和网络正文均不在 Sprint 1 范围。
 
-## Sprint 2：知识模型
+## Sprint 2：Application Knowledge Model（已完成）
 
-实现事实、证据、推断和置信度的数据结构、持久化与 JSON 导出。
+已实现 Application Manifest、Snapshot 1.0/1.1 适配、Page/Frame/Element 实体、
+定位候选、Evidence、observed Fact、Observation、KnowledgeGap、确定性 Builder、
+原子 Writer、Schema 和 `ai-ui-knowledge` CLI。
+
+Sprint 2 不生成推断，`inferences` 固定为空。数据库、LLM、测试案例生成、自动化代码
+生成和人机协同登录运行时不属于本阶段。端到端测试覆盖本地 Snapshot 1.1 到知识包、
+确定性重复输出、部分结果、Schema、证据指针和敏感 Fixture 值扫描。
 
 ## Sprint 3：LLM 与上下文
 

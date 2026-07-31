@@ -121,7 +121,7 @@ def _is_strict_json_value(
         try:
             return all(
                 type(key) is str
-                and _is_utf8_string(cast(str, key))
+                and _is_utf8_string(key)
                 and _is_strict_json_value(
                     item,
                     active_containers=active_containers,

@@ -5,7 +5,6 @@ import traceback
 from pathlib import Path
 
 import pytest
-from backend.tests.snapshot.factories import make_legacy_snapshot, make_snapshot
 
 from ai_ui_explorer.knowledge.snapshot_adapter import (
     InvalidSnapshotError,
@@ -14,22 +13,25 @@ from ai_ui_explorer.knowledge.snapshot_adapter import (
     load_snapshot,
 )
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotDocumentV1
+from tests.snapshot.factories import make_legacy_snapshot, make_snapshot
+
+_LEGACY_FIXTURE_PATH = (
+    Path(__file__).parents[1]
+    / "fixtures"
+    / "knowledge"
+    / "snapshot-v1.0.json"
+)
 
 
 def test_load_snapshot_dispatches_exact_supported_versions(tmp_path: Path) -> None:
     current_path = tmp_path / "current.json"
-    legacy_path = tmp_path / "legacy.json"
     current_path.write_text(
         make_snapshot().model_dump_json(),
         encoding="utf-8",
     )
-    legacy_path.write_text(
-        make_legacy_snapshot().model_dump_json(),
-        encoding="utf-8",
-    )
 
     current = load_snapshot(current_path)
-    legacy = load_snapshot(legacy_path)
+    legacy = load_snapshot(_LEGACY_FIXTURE_PATH)
 
     assert type(current) is SnapshotDocument
     assert type(legacy) is SnapshotDocumentV1

@@ -5,7 +5,6 @@ from hashlib import sha256
 from uuid import UUID
 
 import pytest
-from backend.tests.snapshot.factories import make_frame, make_snapshot
 
 from ai_ui_explorer.knowledge.evidence import (
     EvidenceBuilder,
@@ -14,6 +13,7 @@ from ai_ui_explorer.knowledge.evidence import (
 )
 from ai_ui_explorer.knowledge.ids import canonical_json, stable_id
 from ai_ui_explorer.snapshot.redaction import Redactor
+from tests.snapshot.factories import make_frame, make_snapshot
 
 
 def test_evidence_is_traceable_redacted_and_bounded() -> None:

@@ -1,8 +1,7 @@
 # AI UI Explorer
 
 AI UI Explorer 是面向企业 Web 应用的智能探索与知识建模平台。它计划通过
-Playwright 采集 DOM、Accessibility、页面文本、操作轨迹和网络证据，并借助
-LLM 生成可追溯的应用知识。
+Playwright 采集经过约束和脱敏的页面证据，并逐步形成可追溯的应用知识。
 
 ## 当前状态
 
@@ -12,10 +11,15 @@ LLM 生成可追溯的应用知识。
 - Vue 3 前端服务状态页
 - 项目治理、测试和质量检查基线
 - Sprint 1 的单 URL、有预算、被动、脱敏结构化页面快照 CLI
+- Sprint 2 的确定性 Application Knowledge Model Builder、Schema、Writer 和 CLI
 
-结构化快照会采集页面、Frame、可见文本摘要、可交互元素及滚动结果，并输出经过
-Schema 校验的 JSON。它不是完整应用探索，不会调用 LLM。数据库、Redis、Agent、
-权限探索和周期巡检仍未实现。
+新采集默认输出 Snapshot 1.1，其中包含分层、排序且在当前 Frame 内校验过的定位器
+候选；Knowledge Builder 继续兼容 Snapshot 1.0。Builder 只转换本地、已校验的
+Snapshot，不重新访问网站，也不调用 LLM。
+
+当前仍未实现推断生成、测试案例生成、Playwright 代码生成、数据库、Redis、LLM、
+Agent、人机协同登录运行时、多页面受控探索、权限差异探索和周期巡检。文档中的这些
+内容仍是后续规划，不能当作现有能力。
 
 ## 本地运行
 
@@ -156,6 +160,60 @@ redactor = Redactor(
   Frame 会尽量保留。
 - 动态内容、定时更新、动画和异步懒加载会使重复采集的运行字段或业务内容发生变化。
 - 本功能不导航到其他页面，不展开折叠区域，也不推断业务流程、权限或页面语义。
+
+## 生成 Application Knowledge Package
+
+先准备不含账号、Cookie、Token 或其他秘密的 Application Manifest：
+
+```json
+{
+  "schema_version": "1.0",
+  "application_id": "example-app",
+  "name": "示例应用",
+  "environment": "test",
+  "allowed_origins": ["https://example.test"],
+  "authentication_origins": ["https://sso.example.test"]
+}
+```
+
+`allowed_origins` 和 `authentication_origins` 必须是精确 origin，不能包含路径、查询
+参数、片段或用户信息。Snapshot 的请求 URL 必须属于 `allowed_origins`；最终 URL
+若属于 `authentication_origins`，只会形成访问状态证据，不会被当作目标页面事实。
+
+从一份已生成的 Snapshot 1.0 或 1.1 构建知识包：
+
+```powershell
+.\.venv\Scripts\ai-ui-knowledge.exe `
+  --manifest .\application-manifest.json `
+  --snapshot .\exploration-output\sample\snapshot.json `
+  --output .\knowledge-exports\sample
+```
+
+输出固定为 `<output>\knowledge-package.json`。默认目录 `knowledge-exports/` 已被 Git
+忽略；使用其他目录时必须自行避免把探索结果和业务数据提交到版本库。
+
+退出码约定：
+
+- `0`：生成完整、通过模型与 Schema 校验的知识包。
+- `1`：清单、Snapshot、转换、Schema 或写入失败；不保留半成品。
+- `2`：生成有效但部分完整的知识包，例如源 Snapshot 已截断或知识预算耗尽。
+
+相同 Manifest 与相同 Snapshot 会产生字节级一致的知识包。输出采用不可变语义：
+目标文件若已有相同内容则成功，若已有不同内容则拒绝覆盖。达到 Fact、Observation、
+KnowledgeGap、单元素定位器或 JSON 体积预算时，结果为 `partial`，记录停止原因并生成
+`collection_truncated` 知识缺口；普通知识缺口本身不等同于部分失败。
+
+定位器候选按可靠性分层：
+
+1. 用户语义：role、label、text、placeholder、alt、title。
+2. 显式测试契约：test id。
+3. 稳定属性：id、name、允许的 aria 属性。
+4. 有界结构：CSS、XPath。
+5. 位置：仅用于布局诊断和人工排查，不推荐用于代码生成。
+
+唯一性、稳定性、置信度、Frame 作用域、排序和限制原因会独立记录。当前实现只保留
+观察事实、低可靠观察和知识缺口，`inferences` 固定为空；它不会生成测试案例或自动化
+代码。
 
 ## 文档
 
