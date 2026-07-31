@@ -66,6 +66,46 @@ def test_browser_does_not_observe_input_values_or_disallowed_page_content(
     )
 
 
+def test_browser_collects_same_frame_anchor_href_as_navigation_metadata(
+    primary_url: str,
+) -> None:
+    observation = PlaywrightBrowserSource(headless=True).collect(
+        primary_url,
+        SnapshotLimits(),
+    )
+
+    detail_link = next(
+        element
+        for frame in observation.frames
+        for element in frame.elements
+        if element.accessible_name == "查看虚构详情"
+    )
+
+    assert detail_link.href is not None
+    assert detail_link.href.startswith("http://")
+    assert detail_link.href.endswith("/same-frame.html")
+    assert "href" not in detail_link.attributes
+
+
+def test_browser_collects_anchor_href_as_navigation_metadata(primary_url: str) -> None:
+    observation = PlaywrightBrowserSource(headless=True).collect(
+        primary_url,
+        SnapshotLimits(),
+    )
+
+    help_link = next(
+        element
+        for frame in observation.frames
+        for element in frame.elements
+        if element.accessible_name == "帮助中心"
+    )
+
+    assert help_link.href is not None
+    assert help_link.href.startswith("http://")
+    assert help_link.href.endswith("/help?view=list")
+    assert "href" not in help_link.attributes
+
+
 def test_page_prototype_override_cannot_exfiltrate_input_value(primary_url: str) -> None:
     """Page-world DOM prototype poisoning cannot alter utility-world observations."""
     observation = PlaywrightBrowserSource(headless=True).collect(

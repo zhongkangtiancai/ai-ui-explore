@@ -323,6 +323,7 @@ def _element_snapshot(
         role=_optional_text(raw_element.role, sanitizer),
         accessible_name=_optional_text(raw_element.accessible_name, sanitizer),
         text=_optional_text(raw_element.text, sanitizer),
+        href=_optional_url(raw_element.href, sanitizer),
         attributes=attributes,
         visible=raw_element.visible,
         enabled=raw_element.enabled,
@@ -416,6 +417,10 @@ def _snapshot_error(raw_error: RawErrorObservation, sanitizer: _Sanitizer) -> Sn
 
 def _optional_text(value: str | None, sanitizer: _Sanitizer) -> str | None:
     return sanitizer.text(value) if value is not None else None
+
+
+def _optional_url(value: str | None, sanitizer: _Sanitizer) -> str | None:
+    return sanitizer.url(value) if value is not None else None
 
 
 class _Sanitizer:

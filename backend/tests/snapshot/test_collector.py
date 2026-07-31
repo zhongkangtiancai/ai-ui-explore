@@ -86,6 +86,23 @@ def test_collector_redacts_before_snapshot_validation() -> None:
     assert "super-secret" not in snapshot.model_dump_json()
 
 
+def test_collector_redacts_element_href_as_url() -> None:
+    source = FakeSource.with_href(
+        "https://example.test/detail?token=href-secret&view=list#access_token=fragment"
+    )
+
+    snapshot = SnapshotCollector(source=source).collect(
+        "https://example.test", SnapshotLimits()
+    )
+
+    href = snapshot.frames[0].elements[0].href
+    assert href is not None
+    assert "href-secret" not in href
+    assert "fragment" not in href
+    assert "token=%5BREDACTED%3ATOKEN%5D" in href
+    assert "#" not in href
+
+
 def test_collector_redacts_and_flattens_locator_candidates() -> None:
     """Missing candidate mapping must not drop or persist raw locator secrets."""
     source = FakeSource.with_locator_candidates(

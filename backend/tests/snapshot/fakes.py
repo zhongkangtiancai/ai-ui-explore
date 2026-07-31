@@ -62,6 +62,12 @@ class FakeSource:
         return cls(_page(frames=[_completed_root(text=value)]))
 
     @classmethod
+    def with_href(cls, value: str) -> FakeSource:
+        root = _completed_root(text="Visible page text")
+        element = replace(root.elements[0], href=value)
+        return cls(_page(frames=[replace(root, elements=[element])]))
+
+    @classmethod
     def with_locator_candidates(
         cls,
         candidates: tuple[RawLocatorCandidate, ...],
@@ -198,6 +204,7 @@ def _completed_root(*, text: str, frame_id: str = "root") -> RawFrameObservation
                 role="button",
                 accessible_name="Continue",
                 text=text,
+                href=None,
                 attributes={"data-testid": "continue"},
                 visible=True,
                 enabled=True,

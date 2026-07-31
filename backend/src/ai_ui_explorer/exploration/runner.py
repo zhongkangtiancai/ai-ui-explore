@@ -5,6 +5,7 @@ from typing import Literal, Protocol
 
 from pydantic import Field
 
+from ai_ui_explorer.exploration.candidates import extract_navigation_candidates
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import (
     BoundedExplorationQueue,
@@ -47,7 +48,7 @@ class ExplorationRunner:
         policy: NavigationPolicy,
         budget: ExplorationBudget,
         collector: SnapshotCollectorPort,
-        candidate_extractor: CandidateExtractor,
+        candidate_extractor: CandidateExtractor = extract_navigation_candidates,
     ) -> None:
         self._queue = BoundedExplorationQueue(policy=policy, budget=budget)
         self._collector = collector
@@ -77,6 +78,9 @@ class ExplorationRunner:
                 continue
             visit = self._queue.record_snapshot_result(target, snapshot)
             visits.append(visit)
+            if visit.seen_before:
+                stop_reasons.append("duplicate_state")
+                continue
             enqueue_decisions.extend(
                 self._queue.enqueue_candidates(
                     source=target,

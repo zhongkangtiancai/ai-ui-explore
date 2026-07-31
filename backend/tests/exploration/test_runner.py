@@ -8,7 +8,7 @@ from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry, Nav
 from ai_ui_explorer.exploration.runner import ExplorationRunner, SnapshotCollectorPort
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
-from tests.snapshot.factories import make_snapshot
+from tests.snapshot.factories import make_element, make_frame, make_snapshot
 from tests.snapshot.fakes import FakeSource
 
 
@@ -68,6 +68,138 @@ def test_runner_collects_seed_and_readonly_candidate_until_queue_empty() -> None
     assert collector.collected_urls == [root_url, detail_url]
     assert [visit.target.url for visit in result.visits] == [root_url, detail_url]
     assert result.stop_reasons == []
+
+
+def test_runner_uses_snapshot_href_candidates_by_default() -> None:
+    root_url = "https://app.example.test/root"
+    detail_url = "https://app.example.test/detail"
+    collector = FakeCollector(
+        {
+            root_url: make_snapshot(
+                source={
+                    "requested_url": root_url,
+                    "final_url": root_url,
+                    "title": "Root",
+                },
+                frames=[
+                    make_frame(
+                        elements=[
+                            make_element(
+                                tag="a",
+                                role="link",
+                                accessible_name="Detail",
+                                href=detail_url,
+                            )
+                        ]
+                    )
+                ],
+            ),
+            detail_url: make_snapshot(
+                source={
+                    "requested_url": detail_url,
+                    "final_url": detail_url,
+                    "title": "Detail",
+                }
+            ),
+        }
+    )
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=5, max_depth=2, max_queue_size=5),
+        collector=collector,
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert result.status == "completed"
+    assert collector.collected_urls == [root_url, detail_url]
+
+
+def test_runner_does_not_expand_duplicate_page_states() -> None:
+    first_url = "https://app.example.test/first"
+    second_url = "https://app.example.test/second"
+    first_leaf_url = "https://app.example.test/first-leaf"
+    second_leaf_url = "https://app.example.test/second-leaf"
+    first_snapshot = make_snapshot(
+        source={
+            "requested_url": first_url,
+            "final_url": "https://app.example.test/same-state",
+            "title": "Same",
+        },
+        frames=[
+            make_frame(
+                url="https://app.example.test/same-state",
+                text_summary="Same page",
+                elements=[
+                    make_element(
+                        tag="a",
+                        role="link",
+                        accessible_name="Same action",
+                        text="Same action",
+                        href=first_leaf_url,
+                    )
+                ],
+            )
+        ],
+    )
+    second_snapshot = make_snapshot(
+        source={
+            "requested_url": second_url,
+            "final_url": "https://app.example.test/same-state",
+            "title": "Same",
+        },
+        frames=[
+            make_frame(
+                url="https://app.example.test/same-state",
+                text_summary="Same page",
+                elements=[
+                    make_element(
+                        tag="a",
+                        role="link",
+                        accessible_name="Same action",
+                        text="Same action",
+                        href=second_leaf_url,
+                    )
+                ],
+            )
+        ],
+    )
+    collector = FakeCollector(
+        {
+            first_url: first_snapshot,
+            second_url: second_snapshot,
+            first_leaf_url: make_snapshot(
+                source={
+                    "requested_url": first_leaf_url,
+                    "final_url": first_leaf_url,
+                    "title": "First leaf",
+                }
+            ),
+            second_leaf_url: make_snapshot(
+                source={
+                    "requested_url": second_leaf_url,
+                    "final_url": second_leaf_url,
+                    "title": "Second leaf",
+                }
+            ),
+        }
+    )
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=5, max_depth=2, max_queue_size=5),
+        collector=collector,
+    )
+
+    result = runner.run(
+        modules=[
+            ModuleEntry(module_id="first", url=first_url),
+            ModuleEntry(module_id="second", url=second_url),
+        ],
+    )
+
+    assert [visit.seen_before for visit in result.visits] == [False, True, False]
+    assert collector.collected_urls == [first_url, second_url, first_leaf_url]
+    assert "duplicate_state" in result.stop_reasons
 
 
 def test_runner_respects_depth_and_action_gates() -> None:

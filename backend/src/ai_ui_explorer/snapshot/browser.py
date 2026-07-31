@@ -170,6 +170,7 @@ const collect = (root, { maxElements, maxTextChars }) => {
   });
   const observed = visibleElements.map((element) => {
     const tag = element.tagName.toLowerCase();
+    const href = tag === "a" && element.hasAttribute("href") ? element.href : null;
     const role = clip(element.getAttribute("role")) || implicitRole(element);
     const label = labelText(element);
     const accessibleName = clip(element.getAttribute("aria-label"))
@@ -193,6 +194,7 @@ const collect = (root, { maxElements, maxTextChars }) => {
       label,
       accessibleName,
       text: clip(element.innerText),
+      href,
       attributes,
       semanticDefinitions: [],
     };
@@ -424,7 +426,7 @@ const collect = (root, { maxElements, maxTextChars }) => {
       return result(true);
     }
 
-    const { tag, role, label, accessibleName, text, attributes } = item;
+    const { tag, role, label, accessibleName, text, href, attributes } = item;
     const bounds = element.getBoundingClientRect();
 
     let enabled = null;
@@ -453,6 +455,7 @@ const collect = (root, { maxElements, maxTextChars }) => {
       role,
       accessibleName,
       text,
+      href,
       attributes,
       visible: true,
       enabled,
@@ -508,6 +511,7 @@ class RawElementObservation:
     role: str | None
     accessible_name: str | None
     text: str | None
+    href: str | None
     attributes: dict[str, str]
     visible: bool
     enabled: bool | None
@@ -704,6 +708,7 @@ class _RawElementPayload(TypedDict):
     role: str | None
     accessibleName: str | None
     text: str | None
+    href: str | None
     attributes: dict[str, str]
     visible: bool
     enabled: bool | None
@@ -1110,6 +1115,7 @@ def _element_from_payload(
         role=payload["role"],
         accessible_name=payload["accessibleName"],
         text=payload["text"],
+        href=payload.get("href"),
         attributes=payload["attributes"],
         visible=payload["visible"],
         enabled=payload["enabled"],

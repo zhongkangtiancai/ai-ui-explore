@@ -28,6 +28,7 @@ def make_element(**overrides: Any) -> ElementSnapshot:
         "role": "button",
         "accessible_name": "Submit",
         "text": "Submit",
+        "href": None,
         "attributes": {"type": "submit"},
         "visible": True,
         "enabled": True,

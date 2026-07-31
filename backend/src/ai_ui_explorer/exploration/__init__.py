@@ -1,5 +1,6 @@
 """Sprint 4 controlled exploration foundations."""
 
+from ai_ui_explorer.exploration.candidates import extract_navigation_candidates
 from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
 from ai_ui_explorer.exploration.policy import (
     ActionDecision,
@@ -64,4 +65,5 @@ __all__ = [
     "StateDeduplicator",
     "StateFingerprint",
     "fingerprint_snapshot",
+    "extract_navigation_candidates",
 ]

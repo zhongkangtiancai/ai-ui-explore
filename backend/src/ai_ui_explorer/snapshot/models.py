@@ -177,6 +177,7 @@ class ElementSnapshot(BaseModel):
     role: str | None
     accessible_name: str | None
     text: str | None
+    href: str | None = None
     attributes: dict[str, str]
     visible: bool
     enabled: bool | None

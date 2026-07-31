@@ -3,9 +3,12 @@
     "Bounds": {
       "additionalProperties": false,
       "properties": {
-        "height": {
-          "minimum": 0,
-          "title": "Height",
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
           "type": "number"
         },
         "width": {
@@ -13,12 +16,9 @@
           "title": "Width",
           "type": "number"
         },
-        "x": {
-          "title": "X",
-          "type": "number"
-        },
-        "y": {
-          "title": "Y",
+        "height": {
+          "minimum": 0,
+          "title": "Height",
           "type": "number"
         }
       },
@@ -34,73 +34,21 @@
     "ElementSnapshot": {
       "additionalProperties": false,
       "properties": {
-        "accessible_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Accessible Name"
-        },
-        "attributes": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "title": "Attributes",
-          "type": "object"
-        },
-        "bounds": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Bounds"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "checked": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Checked"
-        },
         "element_id": {
           "title": "Element Id",
           "type": "string"
         },
-        "enabled": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Enabled"
-        },
-        "expanded": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Expanded"
-        },
         "frame_id": {
           "title": "Frame Id",
+          "type": "string"
+        },
+        "traversal_index": {
+          "minimum": 0,
+          "title": "Traversal Index",
+          "type": "integer"
+        },
+        "tag": {
+          "title": "Tag",
           "type": "string"
         },
         "role": {
@@ -114,20 +62,16 @@
           ],
           "title": "Role"
         },
-        "selected": {
+        "accessible_name": {
           "anyOf": [
             {
-              "type": "boolean"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "title": "Selected"
-        },
-        "tag": {
-          "title": "Tag",
-          "type": "string"
+          "title": "Accessible Name"
         },
         "text": {
           "anyOf": [
@@ -140,14 +84,82 @@
           ],
           "title": "Text"
         },
-        "traversal_index": {
-          "minimum": 0,
-          "title": "Traversal Index",
-          "type": "integer"
+        "href": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Href"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Attributes",
+          "type": "object"
         },
         "visible": {
           "title": "Visible",
           "type": "boolean"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "checked": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checked"
+        },
+        "selected": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selected"
+        },
+        "expanded": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expanded"
+        },
+        "bounds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Bounds"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -172,31 +184,8 @@
     "FrameSnapshot": {
       "additionalProperties": false,
       "properties": {
-        "depth": {
-          "minimum": 0,
-          "title": "Depth",
-          "type": "integer"
-        },
-        "elements": {
-          "items": {
-            "$ref": "#/$defs/ElementSnapshot"
-          },
-          "title": "Elements",
-          "type": "array"
-        },
-        "errors": {
-          "items": {
-            "$ref": "#/$defs/SnapshotError"
-          },
-          "title": "Errors",
-          "type": "array"
-        },
         "frame_id": {
           "title": "Frame Id",
-          "type": "string"
-        },
-        "name": {
-          "title": "Name",
           "type": "string"
         },
         "parent_frame_id": {
@@ -210,24 +199,23 @@
           ],
           "title": "Parent Frame Id"
         },
-        "redaction_categories": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Redaction Categories",
-          "type": "array"
-        },
-        "redaction_count": {
+        "traversal_index": {
           "minimum": 0,
-          "title": "Redaction Count",
+          "title": "Traversal Index",
           "type": "integer"
         },
-        "scroll_results": {
-          "items": {
-            "$ref": "#/$defs/ScrollResult"
-          },
-          "title": "Scroll Results",
-          "type": "array"
+        "depth": {
+          "minimum": 0,
+          "title": "Depth",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
         },
         "status": {
           "enum": [
@@ -237,6 +225,35 @@
           ],
           "title": "Status",
           "type": "string"
+        },
+        "text_summary": {
+          "title": "Text Summary",
+          "type": "string"
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/ElementSnapshot"
+          },
+          "title": "Elements",
+          "type": "array"
+        },
+        "scroll_results": {
+          "items": {
+            "$ref": "#/$defs/ScrollResult"
+          },
+          "title": "Scroll Results",
+          "type": "array"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/SnapshotError"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
         },
         "stop_reason": {
           "anyOf": [
@@ -259,22 +276,17 @@
           ],
           "title": "Stop Reason"
         },
-        "text_summary": {
-          "title": "Text Summary",
-          "type": "string"
-        },
-        "traversal_index": {
+        "redaction_count": {
           "minimum": 0,
-          "title": "Traversal Index",
+          "title": "Redaction Count",
           "type": "integer"
         },
-        "truncated": {
-          "title": "Truncated",
-          "type": "boolean"
-        },
-        "url": {
-          "title": "Url",
-          "type": "string"
+        "redaction_categories": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Redaction Categories",
+          "type": "array"
         }
       },
       "required": [
@@ -300,6 +312,20 @@
     "PageSnapshot": {
       "additionalProperties": false,
       "properties": {
+        "main_frame_id": {
+          "title": "Main Frame Id",
+          "type": "string"
+        },
+        "viewport_width": {
+          "minimum": 1,
+          "title": "Viewport Width",
+          "type": "integer"
+        },
+        "viewport_height": {
+          "minimum": 1,
+          "title": "Viewport Height",
+          "type": "integer"
+        },
         "language": {
           "anyOf": [
             {
@@ -310,20 +336,6 @@
             }
           ],
           "title": "Language"
-        },
-        "main_frame_id": {
-          "title": "Main Frame Id",
-          "type": "string"
-        },
-        "viewport_height": {
-          "minimum": 1,
-          "title": "Viewport Height",
-          "type": "integer"
-        },
-        "viewport_width": {
-          "minimum": 1,
-          "title": "Viewport Width",
-          "type": "integer"
         }
       },
       "required": [
@@ -342,23 +354,27 @@
           "title": "Container Id",
           "type": "string"
         },
-        "discovered_elements": {
-          "minimum": 0,
-          "title": "Discovered Elements",
-          "type": "integer"
-        },
         "label": {
           "title": "Label",
           "type": "string"
-        },
-        "restored": {
-          "title": "Restored",
-          "type": "boolean"
         },
         "rounds": {
           "minimum": 0,
           "title": "Rounds",
           "type": "integer"
+        },
+        "discovered_elements": {
+          "minimum": 0,
+          "title": "Discovered Elements",
+          "type": "integer"
+        },
+        "restored": {
+          "title": "Restored",
+          "type": "boolean"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
         },
         "stop_reason": {
           "enum": [
@@ -372,10 +388,6 @@
           ],
           "title": "Stop Reason",
           "type": "string"
-        },
-        "truncated": {
-          "title": "Truncated",
-          "type": "boolean"
         }
       },
       "required": [
@@ -393,6 +405,10 @@
     "SnapshotError": {
       "additionalProperties": false,
       "properties": {
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
         "error_code": {
           "title": "Error Code",
           "type": "string"
@@ -401,17 +417,13 @@
           "title": "Message",
           "type": "string"
         },
-        "occurred_at": {
-          "format": "date-time",
-          "title": "Occurred At",
-          "type": "string"
-        },
         "recoverable": {
           "title": "Recoverable",
           "type": "boolean"
         },
-        "scope": {
-          "title": "Scope",
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
           "type": "string"
         }
       },
@@ -428,11 +440,11 @@
     "SnapshotLimits": {
       "additionalProperties": false,
       "properties": {
-        "max_elements": {
-          "default": 5000,
-          "maximum": 100000,
-          "minimum": 1,
-          "title": "Max Elements",
+        "total_timeout_ms": {
+          "default": 60000,
+          "maximum": 600000,
+          "minimum": 1000,
+          "title": "Total Timeout Ms",
           "type": "integer"
         },
         "max_frames": {
@@ -440,13 +452,6 @@
           "maximum": 500,
           "minimum": 1,
           "title": "Max Frames",
-          "type": "integer"
-        },
-        "max_json_bytes": {
-          "default": 10485760,
-          "maximum": 104857600,
-          "minimum": 65536,
-          "title": "Max Json Bytes",
           "type": "integer"
         },
         "max_scroll_containers_per_frame": {
@@ -463,6 +468,13 @@
           "title": "Max Scroll Rounds Per Container",
           "type": "integer"
         },
+        "max_elements": {
+          "default": 5000,
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Max Elements",
+          "type": "integer"
+        },
         "max_text_chars": {
           "default": 500,
           "maximum": 10000,
@@ -470,11 +482,11 @@
           "title": "Max Text Chars",
           "type": "integer"
         },
-        "total_timeout_ms": {
-          "default": 60000,
-          "maximum": 600000,
-          "minimum": 1000,
-          "title": "Total Timeout Ms",
+        "max_json_bytes": {
+          "default": 10485760,
+          "maximum": 104857600,
+          "minimum": 65536,
+          "title": "Max Json Bytes",
           "type": "integer"
         }
       },
@@ -484,11 +496,9 @@
     "SnapshotLocatorCandidate": {
       "additionalProperties": false,
       "properties": {
-        "confidence": {
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Confidence",
-          "type": "number"
+        "locator_id": {
+          "title": "Locator Id",
+          "type": "string"
         },
         "element_ref": {
           "title": "Element Ref",
@@ -496,77 +506,6 @@
         },
         "frame_ref": {
           "title": "Frame Ref",
-          "type": "string"
-        },
-        "limitations": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Limitations",
-          "type": "array"
-        },
-        "locator_id": {
-          "title": "Locator Id",
-          "type": "string"
-        },
-        "match_count": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Match Count"
-        },
-        "parameters": {
-          "additionalProperties": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              }
-            ]
-          },
-          "title": "Parameters",
-          "type": "object"
-        },
-        "rank": {
-          "minimum": 1,
-          "title": "Rank",
-          "type": "integer"
-        },
-        "recommended": {
-          "title": "Recommended",
-          "type": "boolean"
-        },
-        "source": {
-          "enum": [
-            "observed",
-            "generated"
-          ],
-          "title": "Source",
-          "type": "string"
-        },
-        "stability": {
-          "enum": [
-            "high",
-            "medium",
-            "low",
-            "unknown"
-          ],
-          "title": "Stability",
           "type": "string"
         },
         "strategy": {
@@ -588,6 +527,34 @@
           "title": "Strategy",
           "type": "string"
         },
+        "parameters": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "title": "Parameters",
+          "type": "object"
+        },
+        "source": {
+          "enum": [
+            "observed",
+            "generated"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
         "uniqueness": {
           "enum": [
             "unique",
@@ -596,6 +563,51 @@
           ],
           "title": "Uniqueness",
           "type": "string"
+        },
+        "match_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match Count"
+        },
+        "stability": {
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unknown"
+          ],
+          "title": "Stability",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "rank": {
+          "minimum": 1,
+          "title": "Rank",
+          "type": "integer"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
         }
       },
       "required": [
@@ -618,19 +630,14 @@
     "SnapshotStatistics": {
       "additionalProperties": false,
       "properties": {
+        "frame_count": {
+          "minimum": 0,
+          "title": "Frame Count",
+          "type": "integer"
+        },
         "completed_frame_count": {
           "minimum": 0,
           "title": "Completed Frame Count",
-          "type": "integer"
-        },
-        "duration_ms": {
-          "minimum": 0,
-          "title": "Duration Ms",
-          "type": "integer"
-        },
-        "element_count": {
-          "minimum": 0,
-          "title": "Element Count",
           "type": "integer"
         },
         "failed_frame_count": {
@@ -638,15 +645,19 @@
           "title": "Failed Frame Count",
           "type": "integer"
         },
-        "frame_count": {
+        "element_count": {
           "minimum": 0,
-          "title": "Frame Count",
+          "title": "Element Count",
           "type": "integer"
         },
-        "locator_candidate_count": {
-          "default": 0,
+        "scroll_container_count": {
           "minimum": 0,
-          "title": "Locator Candidate Count",
+          "title": "Scroll Container Count",
+          "type": "integer"
+        },
+        "redaction_count": {
+          "minimum": 0,
+          "title": "Redaction Count",
           "type": "integer"
         },
         "redaction_categories": {
@@ -656,14 +667,15 @@
           "title": "Redaction Categories",
           "type": "array"
         },
-        "redaction_count": {
+        "duration_ms": {
           "minimum": 0,
-          "title": "Redaction Count",
+          "title": "Duration Ms",
           "type": "integer"
         },
-        "scroll_container_count": {
+        "locator_candidate_count": {
+          "default": 0,
           "minimum": 0,
-          "title": "Scroll Container Count",
+          "title": "Locator Candidate Count",
           "type": "integer"
         }
       },
@@ -683,12 +695,12 @@
     "SourceSnapshot": {
       "additionalProperties": false,
       "properties": {
-        "final_url": {
-          "title": "Final Url",
-          "type": "string"
-        },
         "requested_url": {
           "title": "Requested Url",
+          "type": "string"
+        },
+        "final_url": {
+          "title": "Final Url",
           "type": "string"
         },
         "title": {
@@ -707,59 +719,10 @@
   },
   "additionalProperties": false,
   "properties": {
-    "completed_at": {
-      "format": "date-time",
-      "title": "Completed At",
-      "type": "string"
-    },
-    "errors": {
-      "items": {
-        "$ref": "#/$defs/SnapshotError"
-      },
-      "title": "Errors",
-      "type": "array"
-    },
-    "frames": {
-      "items": {
-        "$ref": "#/$defs/FrameSnapshot"
-      },
-      "title": "Frames",
-      "type": "array"
-    },
-    "limits": {
-      "$ref": "#/$defs/SnapshotLimits"
-    },
-    "locator_candidates": {
-      "items": {
-        "$ref": "#/$defs/SnapshotLocatorCandidate"
-      },
-      "title": "Locator Candidates",
-      "type": "array"
-    },
-    "page": {
-      "$ref": "#/$defs/PageSnapshot"
-    },
-    "schema_version": {
-      "const": "1.1",
-      "default": "1.1",
-      "title": "Schema Version",
-      "type": "string"
-    },
     "snapshot_id": {
       "format": "uuid",
       "title": "Snapshot Id",
       "type": "string"
-    },
-    "source": {
-      "$ref": "#/$defs/SourceSnapshot"
-    },
-    "started_at": {
-      "format": "date-time",
-      "title": "Started At",
-      "type": "string"
-    },
-    "statistics": {
-      "$ref": "#/$defs/SnapshotStatistics"
     },
     "status": {
       "enum": [
@@ -769,9 +732,58 @@
       "title": "Status",
       "type": "string"
     },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "completed_at": {
+      "format": "date-time",
+      "title": "Completed At",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceSnapshot"
+    },
+    "limits": {
+      "$ref": "#/$defs/SnapshotLimits"
+    },
+    "statistics": {
+      "$ref": "#/$defs/SnapshotStatistics"
+    },
+    "page": {
+      "$ref": "#/$defs/PageSnapshot"
+    },
+    "frames": {
+      "items": {
+        "$ref": "#/$defs/FrameSnapshot"
+      },
+      "title": "Frames",
+      "type": "array"
+    },
+    "errors": {
+      "items": {
+        "$ref": "#/$defs/SnapshotError"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
     "truncated": {
       "title": "Truncated",
       "type": "boolean"
+    },
+    "schema_version": {
+      "const": "1.1",
+      "default": "1.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "locator_candidates": {
+      "items": {
+        "$ref": "#/$defs/SnapshotLocatorCandidate"
+      },
+      "title": "Locator Candidates",
+      "type": "array"
     }
   },
   "required": [
