@@ -29,6 +29,6 @@
 - Sprint 1 的单 URL、被动、有界、脱敏结构化页面快照 CLI。
 - Sprint 2 的确定性 Application Knowledge Model Builder、Schema、Writer 和 CLI。
 - Sprint 3 的 LLM Provider 抽象、Mock Provider、OpenAI-compatible 非流式适配器、Context Manager、保守 Token 估算、进程内缓存和薄 Runtime。
-- Sprint 4 前三切片的 URL/Origin 风险门禁、只读动作门禁、任务状态机、最小审计事件、页面状态指纹、去重基础、指定模块入口配置、有界探索队列模型、可注入 Collector Port 的有界 Runner 编排、`SnapshotCollector` 适配器、Snapshot 1.1 脱敏 `href` 导航元数据，从快照提取去重链接导航候选的纯函数，以及 Runner 对默认候选提取和重复状态停止展开的接入。
+- Sprint 4 前三切片的 URL/Origin 风险门禁、只读动作门禁、任务状态机、最小审计事件、页面状态指纹、去重基础、指定模块入口配置、有界探索队列模型、可注入 Collector Port 的有界 Runner 编排、`SnapshotCollector` 适配器、Snapshot 1.1 脱敏 `href` 导航元数据，从快照提取去重链接导航候选的纯函数，以及 Runner 对默认候选提取和重复状态停止展开的接入；本地 HTTP fixture 已通过真实 Chromium 的两页受控端到端验收。
 
 仍未实现：数据库、Redis、Agent、多页面受控探索运行时、人机协同登录运行时、多身份权限差异、巡检、测试案例生成和 Playwright 自动化代码生成。

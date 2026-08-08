@@ -1,11 +1,14 @@
 """Bounded exploration runner tests with injected fake collectors."""
 
+from urllib.parse import urljoin, urlsplit
+
 import pytest
 
 from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry, NavigationCandidate
 from ai_ui_explorer.exploration.runner import ExplorationRunner, SnapshotCollectorPort
+from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSource
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
 from tests.snapshot.factories import make_element, make_frame, make_snapshot
@@ -113,6 +116,34 @@ def test_runner_uses_snapshot_href_candidates_by_default() -> None:
 
     assert result.status == "completed"
     assert collector.collected_urls == [root_url, detail_url]
+
+
+def test_runner_explores_local_fixture_link_with_real_browser(
+    primary_url: str,
+) -> None:
+    """The real collection path follows one same-origin observed anchor within budget."""
+    parsed_url = urlsplit(primary_url)
+    origin = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    detail_url = urljoin(primary_url, "/same-frame.html")
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(
+            allowed_origins=[origin],
+            allow_local_http=True,
+        ),
+        budget=ExplorationBudget(max_pages=2, max_depth=1, max_queue_size=5),
+        collector=SnapshotCollectorAdapter(
+            collector=SnapshotCollector(source=PlaywrightBrowserSource(headless=True)),
+            limits=SnapshotLimits(),
+        ),
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="fixture", url=primary_url)])
+
+    assert result.status == "completed"
+    assert result.errors == []
+    assert result.stop_reasons == []
+    assert [visit.target.url for visit in result.visits] == [primary_url, detail_url]
+    assert [visit.seen_before for visit in result.visits] == [False, False]
 
 
 def test_runner_does_not_expand_duplicate_page_states() -> None:

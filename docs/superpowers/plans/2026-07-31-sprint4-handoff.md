@@ -1,6 +1,8 @@
 # Sprint 4 交接记录
 
-日期：2026-07-31
+初始日期：2026-07-31
+
+更新日期：2026-08-08
 
 ## 🎯 恢复任务时先看这里
 
@@ -41,7 +43,6 @@ Sprint 4 已完成受控探索的模型与编排基础：
 
 不要把下面内容描述成已完成：
 
-- 真实浏览器多页面端到端验收。
 - 人机协同登录运行时。
 - 认证 URL / 选择器验证器。
 - 登录后安全检查点。
@@ -78,20 +79,16 @@ git diff --check
 
 ## 🔜 下一步建议
 
-下一步应完成 Sprint 4 第三阶段最后一块：
+Sprint 4 第三阶段已完成本地 fixture 的真实 Chromium 两页端到端验收：
 
-> 使用本地 fixture 做真实浏览器多页面端到端验收。
-
-建议目标：
-
-- 构造一个本地多页面 fixture。
 - 从模块入口 URL 开始运行 `ExplorationRunner`。
 - 通过 `SnapshotCollectorAdapter` 调用真实 `SnapshotCollector`。
-- 从入口页 Snapshot 自动提取 `href` 候选。
+- 从入口页 Snapshot 自动提取同源 `href` 候选。
 - 经 `NavigationPolicy`、`ActionGate`、预算和状态去重控制后访问下一页。
 - 验证不访问外部网站、不执行业务动作、不泄露敏感错误信息。
+- 发现并修正 `max_pages` 对已访问入口页的重复计数。
 
-建议先写失败测试，再实现最小代码。
+下一步建议进入 Sprint 4 第四阶段的人机协同登录运行时设计；该阶段需要先单独确认登录态存储、人工确认界面和本地模拟登录站点的范围。
 
 ## 💡 恢复时的第一条操作建议
 
@@ -103,4 +100,4 @@ git log --oneline -5
 .\.venv\Scripts\python.exe -m pytest -q backend\tests\exploration
 ```
 
-如果工作区干净且测试通过，就从“本地 fixture 真实浏览器多页面端到端验收”继续。
+如果工作区干净且测试通过，就从 Sprint 4 第四阶段的人机协同登录运行时设计继续。

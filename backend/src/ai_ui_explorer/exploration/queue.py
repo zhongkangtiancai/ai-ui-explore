@@ -174,7 +174,7 @@ class BoundedExplorationQueue:
             return _reject("duplicate_url")
         if depth > self._budget.max_depth:
             return _reject("max_depth")
-        if self._visited_count + len(self._known_urls) >= self._budget.max_pages:
+        if len(self._known_urls) >= self._budget.max_pages:
             return _reject("max_pages")
         if len(self._pending) >= self._budget.max_queue_size:
             return _reject("queue_limit")
