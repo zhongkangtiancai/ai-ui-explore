@@ -135,11 +135,13 @@ git commit -m "feat: add authentication plan validation"
 ```python
 def test_session_collector_observes_login_only_dashboard(login_site: LoginSite) -> None:
     session = PlaywrightBrowserSession.open(headless=True)
+    task = ExplorationTask.create(task_id="fixture-collector")
     try:
         session.goto(login_site.login_url)
-        session.page.locator("#fixture-login").click()
+        fixture_page(session).locator("#fixture-login").click()
         snapshot = SessionSnapshotCollectorAdapter(
             session=session,
+            task=task,
             limits=SnapshotLimits(),
         ).collect(login_site.dashboard_url)
     finally:
@@ -161,9 +163,11 @@ Expected: import error for `PlaywrightBrowserSession` 或 `SessionSnapshotCollec
 
 `PlaywrightBrowserSession` 使用 `sync_playwright()`、`chromium.launch()`、单一 `browser.new_context()` 和单一 Page；注册与现有 source 相同的 observation/scroll selector。`collect` 必须复用该 Page 并调用同一个私有观察函数。`close` 必须按 Page、Context、Browser、Playwright 顺序幂等关闭，且类中不得出现 `storage_state`。
 
-`SessionSnapshotCollectorAdapter` 以 `session + limits` 安全构造并默认自行创建
+`SessionSnapshotCollectorAdapter` 以 `session + task + limits` 安全构造并默认自行创建
 `SnapshotCollector(source=session)`；显式注入 Collector 时必须拒绝 source 与 session 身份不一致。
-`HumanLoginSession` 也必须验证 Collector 与 Browser Session 绑定同一对象。异常面与
+绑定证明只固化在具体适配器内，并由模块私有的精确类型与对象身份校验消费；不得公开 token、绑定对象
+或可由任意 Collector Port、包装器自报的布尔能力。`HumanLoginSession` 必须验证 Collector 与
+Browser Session、Task 均绑定同一对象；Runner 传入可选 task 时也只接受绑定相同 task 的具体适配器。异常面与
 `SnapshotCollectorAdapter` 保持一致：对 `CollectionFailedError` 仅抛出固定的
 `"Controlled exploration snapshot collection failed."`。
 
@@ -246,7 +250,7 @@ def confirm_and_verify(self) -> AuthenticationVerification:
     )
 ```
 
-`confirm_and_verify` 必须先确认当前 URL 被 policy 作为目标 Origin 允许，再执行 `has_css`；若 Browser 关闭或验证异常，只返回固定失败原因码并使任务回到暂停状态。`close` 必须调用 Browser Session 的 `close`；`complete`、`partial`、`cancel` 和运行时异常路径调用同一清理函数。
+`confirm_and_verify` 必须先确认当前 URL 被 policy 作为目标 Origin 允许，再执行 `has_css`；若 Browser 关闭或验证异常，只返回固定失败原因码并使任务回到暂停状态。`close` 必须调用 Browser Session 的 `close`；`complete`、`partial`、`failed`、`cancel` 和运行时异常路径调用同一清理函数。绑定 task 的 Runner 必须以 `finally` 覆盖候选提取、队列等未处理异常，在传播异常前进入 `failed`。终态回调必须逐个隔离异常并继续执行全部回调；清理异常不得覆盖 Runner 原始异常，只记录固定安全审计原因码。该保证不覆盖进程崩溃或强制终止。
 
 - [ ] **Step 4: 运行运行时测试。**
 
