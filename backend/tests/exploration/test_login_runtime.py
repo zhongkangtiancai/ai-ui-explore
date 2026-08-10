@@ -25,11 +25,13 @@ class _FakeBrowser:
         *,
         current_url: str = "https://app.example.test/dashboard",
         checkpoint_present: bool = True,
+        is_headless: bool = False,
         goto_error: Exception | None = None,
         css_error: Exception | None = None,
     ) -> None:
         self.current_url = current_url
         self.checkpoint_present = checkpoint_present
+        self.is_headless = is_headless
         self.goto_error = goto_error
         self.css_error = css_error
         self.goto_calls: list[str] = []
@@ -125,6 +127,20 @@ def test_start_validates_plan_navigates_and_pauses_for_human() -> None:
     assert browser.goto_calls == ["https://sso.example.test/login"]
     assert task.state == ExplorationTaskState.PAUSED_FOR_HUMAN
     assert task.audit_events[-1].reason_code == "authentication_required"
+
+
+def test_start_rejects_headless_browser_before_task_or_navigation() -> None:
+    session, task, browser, _ = _session(browser=_FakeBrowser(is_headless=True))
+
+    with pytest.raises(
+        HumanLoginRuntimeError,
+        match=r"^Human login session requires a visible browser\.$",
+    ):
+        session.start()
+
+    assert task.state == ExplorationTaskState.CREATED
+    assert browser.goto_calls == []
+    assert browser.close_calls == 1
 
 
 def test_start_rejects_invalid_plan_before_navigation_with_safe_error() -> None:
@@ -254,6 +270,36 @@ def test_close_is_idempotent_and_prevents_collection_or_verification() -> None:
         match=r"^Authentication is not verified\.$",
     ):
         session.collector_port()
+    with pytest.raises(
+        HumanLoginRuntimeError,
+        match=r"^Human login session is closed\.$",
+    ):
+        session.confirm_and_verify()
+
+
+@pytest.mark.parametrize(
+    "terminal_state",
+    [ExplorationTaskState.COMPLETED, ExplorationTaskState.CANCELLED],
+)
+def test_terminal_task_closes_and_permanently_rejects_collection(
+    terminal_state: ExplorationTaskState,
+) -> None:
+    session, task, browser, _ = _started_session()
+    session.confirm_and_verify()
+    if terminal_state == ExplorationTaskState.COMPLETED:
+        task.complete()
+    else:
+        task.cancel(reason_code="user_cancelled")
+
+    assert browser.close_calls == 1
+    with pytest.raises(
+        HumanLoginRuntimeError,
+        match=r"^Authentication is not verified\.$",
+    ):
+        session.collector_port()
+
+    session.close()
+    assert browser.close_calls == 1
     with pytest.raises(
         HumanLoginRuntimeError,
         match=r"^Human login session is closed\.$",

@@ -38,10 +38,16 @@ class HumanLoginSession:
         self._collector = collector
         self._verification: AuthenticationVerification | None = None
         self._closed = False
+        self._task.register_terminal_callback(self.close)
 
     def start(self) -> None:
         """Validate the plan, open its handoff URL, and pause for the human."""
         self._require_open()
+        if self._browser.is_headless:
+            self._close_after_failure()
+            raise HumanLoginRuntimeError(
+                "Human login session requires a visible browser."
+            )
         collection_started = False
         try:
             self._plan.validate(self._policy)

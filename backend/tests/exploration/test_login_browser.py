@@ -66,6 +66,29 @@ def test_browser_session_public_api_does_not_expose_automation_objects() -> None
     )
 
 
+def test_browser_session_exposes_requested_headless_mode() -> None:
+    closed: list[str] = []
+    session = PlaywrightBrowserSession(
+        playwright=cast(
+            Playwright,
+            _StoppingResource("playwright", closed, fail=False),
+        ),
+        browser=cast(
+            Browser,
+            _ClosingResource("browser", closed, fail=False),
+        ),
+        context=cast(
+            BrowserContext,
+            _ClosingResource("context", closed, fail=False),
+        ),
+        page=cast(Page, _ClosingResource("page", closed, fail=False)),
+        headless=True,
+    )
+
+    assert session.is_headless is True
+    session.close()
+
+
 @pytest.mark.parametrize(
     "failing_step",
     [None, "page", "context", "browser", "playwright"],
@@ -91,6 +114,7 @@ def test_browser_session_close_continues_in_order_after_playwright_error(
             Page,
             _ClosingResource("page", closed, fail=failing_step == "page"),
         ),
+        headless=True,
     )
 
     session.close()

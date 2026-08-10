@@ -70,3 +70,37 @@ def test_terminal_task_rejects_new_collection() -> None:
 
     with pytest.raises(ExplorationTaskError, match="terminal"):
         task.start_collection()
+
+
+@pytest.mark.parametrize(
+    "terminal_state",
+    [ExplorationTaskState.COMPLETED, ExplorationTaskState.CANCELLED],
+)
+def test_terminal_transition_notifies_registered_callback_synchronously(
+    terminal_state: ExplorationTaskState,
+) -> None:
+    task = ExplorationTask.create(task_id="task-1")
+    observed_states: list[ExplorationTaskState] = []
+    task.register_terminal_callback(lambda: observed_states.append(task.state))
+    task.start_collection()
+
+    if terminal_state == ExplorationTaskState.COMPLETED:
+        task.complete()
+    else:
+        task.cancel(reason_code="user_cancelled")
+
+    assert observed_states == [terminal_state]
+
+
+def test_registering_terminal_callback_after_terminal_state_notifies_immediately() -> None:
+    task = ExplorationTask.create(task_id="task-1")
+    task.cancel(reason_code="user_cancelled")
+    notifications = 0
+
+    def record_notification() -> None:
+        nonlocal notifications
+        notifications += 1
+
+    task.register_terminal_callback(record_notification)
+
+    assert notifications == 1

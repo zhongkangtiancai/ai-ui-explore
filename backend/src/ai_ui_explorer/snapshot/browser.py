@@ -620,11 +620,13 @@ class PlaywrightBrowserSession:
         browser: Browser,
         context: BrowserContext,
         page: Page,
+        headless: bool,
     ) -> None:
         self._playwright = playwright
         self._browser = browser
         self._context = context
         self._page = page
+        self._headless = headless
         self._closed = False
 
     @classmethod
@@ -661,7 +663,12 @@ class PlaywrightBrowserSession:
             browser=browser,
             context=context,
             page=page,
+            headless=headless,
         )
+
+    @property
+    def is_headless(self) -> bool:
+        return self._headless
 
     @property
     def current_url(self) -> str:
