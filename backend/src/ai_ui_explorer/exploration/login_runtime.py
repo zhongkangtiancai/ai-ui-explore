@@ -31,6 +31,10 @@ class HumanLoginSession:
         browser: PlaywrightBrowserSession,
         collector: SessionSnapshotCollectorAdapter,
     ) -> None:
+        if not collector.is_bound_to(browser):
+            raise HumanLoginRuntimeError(
+                "Session collector is not bound to browser."
+            )
         self._task = task
         self._plan = plan
         self._policy = policy

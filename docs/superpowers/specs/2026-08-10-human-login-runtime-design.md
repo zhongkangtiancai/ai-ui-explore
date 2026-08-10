@@ -55,6 +55,10 @@ paused_for_human --(人工在可见浏览器完成登录)--> verifying_authentic
 3. `collector_port`：只在验证成功后提供绑定同一 Context 的 Snapshot Collector Port。
 4. `close`：幂等关闭 Page、Context 和 Browser；任何终态均必须调用。
 
+会话 Collector 由 Browser Session 安全构造；即使测试或扩展显式注入 `SnapshotCollector`，也必须
+校验其 observation source 与会话对象身份一致。`HumanLoginSession` 构造时再次校验 Collector 与
+Browser Session 的绑定关系，不接受跨 Context 错绑。
+
 运行时不得调用 `storage_state()`，不得向文件、日志或模型暴露浏览器存储状态。审计事件只记录状态、
 配置标识和安全原因码，不记录页面敏感内容。
 
@@ -63,6 +67,10 @@ paused_for_human --(人工在可见浏览器完成登录)--> verifying_authentic
 现有 `PlaywrightBrowserSource` 会为每次采集新建 Context，无法保留登录态。新增的会话绑定采集适配器
 必须复用 `HumanLoginSession` 的 Context，在同一 Page 或同一 Context 新建的受控 Page 中进行 Snapshot
 收集。它不执行点击、填充、提交或文件上传；导航候选仍由现有 Runner 的只读规则处理。
+
+Runner 可选绑定同一个 `ExplorationTask`。未绑定时保持原有独立运行行为；绑定时，正常完成进入
+`completed`，存在采集错误的局部结果进入 `partial`，并在 `run` 返回前同步触发任务终态回调销毁
+Browser Context。
 
 ## 错误与清理
 

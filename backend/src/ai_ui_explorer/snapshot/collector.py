@@ -83,6 +83,10 @@ class SnapshotCollector:
         self._monotonic_clock = monotonic_clock
         self._uuid_factory = uuid_factory
 
+    def is_bound_to_source(self, source: BrowserObservationSource) -> bool:
+        """Check source identity without exposing the bound observation source."""
+        return self._source is source
+
     def collect(self, url: str, limits: SnapshotLimits) -> SnapshotDocument:
         """Return a validated snapshot after redacting every persisted string value."""
         started_at = datetime.now(UTC)

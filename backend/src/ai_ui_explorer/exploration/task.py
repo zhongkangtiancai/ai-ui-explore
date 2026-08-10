@@ -112,6 +112,13 @@ class ExplorationTask(DeepFrozenModel):
         self._append_event("task_completed")
         self._notify_terminal_callbacks()
 
+    def mark_partial(self, *, reason_code: str) -> None:
+        self._require_not_terminal()
+        self._require_state(ExplorationTaskState.COLLECTING)
+        self._set_state(ExplorationTaskState.PARTIAL)
+        self._append_event("task_partial", reason_code=reason_code)
+        self._notify_terminal_callbacks()
+
     def cancel(self, *, reason_code: str) -> None:
         self._require_not_terminal()
         self._set_state(ExplorationTaskState.CANCELLED)

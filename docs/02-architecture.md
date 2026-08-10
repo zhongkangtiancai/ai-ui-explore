@@ -30,7 +30,7 @@
 - Sprint 2 的确定性 Application Knowledge Model Builder、Schema、Writer 和 CLI。
 - Sprint 3 的 LLM Provider 抽象、Mock Provider、OpenAI-compatible 非流式适配器、Context Manager、保守 Token 估算、进程内缓存和薄 Runtime。
 - Sprint 4 前三切片的 URL/Origin 风险门禁、只读动作门禁、任务状态机、最小审计事件、页面状态指纹、去重基础、指定模块入口配置、有界探索队列模型、可注入 Collector Port 的有界 Runner 编排、`SnapshotCollector` 适配器、Snapshot 1.1 脱敏 `href` 导航元数据，从快照提取去重链接导航候选的纯函数，以及 Runner 对默认候选提取和重复状态停止展开的接入；本地 HTTP fixture 已通过真实 Chromium 的两页受控端到端验收。
-- Sprint 4 第四切片的后端人机协同登录运行时：每个任务使用单一、进程内存态、可见的 Playwright Browser Context；人工显式确认后，以配置的登录后 URL 前缀和 CSS 检查点认证，再通过绑定同一 Context 的 Collector Port 恢复 Runner 的受控只读探索。本地 HTTP 模拟登录站点已通过真实 Chromium 端到端验收。
+- Sprint 4 第四切片的后端人机协同登录运行时：每个任务使用单一、进程内存态、可见的 Playwright Browser Context；人工显式确认后，以配置的登录后 URL 前缀和 CSS 检查点认证，再通过 source 身份校验并绑定同一 Context 的 Collector Port 恢复 Runner 的受控只读探索。Runner 可选绑定同一个任务，并在 completed/partial 结果落定后同步进入终态、关闭会话。本地 HTTP 模拟登录站点已通过真实 Chromium 端到端验收。
 
 该登录运行时不持久化浏览器状态，且不等于通用登录产品能力。仍未实现：跨任务登录态复用、
 加密登录态存储、SSO/扫码/MFA 专用适配、前端人工确认页、真实外部站点登录、访问控制绕过、

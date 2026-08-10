@@ -30,6 +30,20 @@ def test_task_state_machine_records_valid_lifecycle() -> None:
     ]
 
 
+def test_partial_transition_records_reason_and_notifies_callback() -> None:
+    task = ExplorationTask.create(task_id="task-1")
+    observed_states: list[ExplorationTaskState] = []
+    task.register_terminal_callback(lambda: observed_states.append(task.state))
+    task.start_collection()
+
+    task.mark_partial(reason_code="collector_failure")
+
+    assert task.state == ExplorationTaskState.PARTIAL
+    assert task.audit_events[-1].event_type == "task_partial"
+    assert task.audit_events[-1].reason_code == "collector_failure"
+    assert observed_states == [ExplorationTaskState.PARTIAL]
+
+
 def test_task_cannot_verify_without_human_confirmation() -> None:
     task = ExplorationTask.create(task_id="task-1")
     task.start_collection()

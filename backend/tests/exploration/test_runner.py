@@ -8,6 +8,7 @@ from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapte
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry, NavigationCandidate
 from ai_ui_explorer.exploration.runner import ExplorationRunner, SnapshotCollectorPort
+from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskState
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSource
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
@@ -71,6 +72,63 @@ def test_runner_collects_seed_and_readonly_candidate_until_queue_empty() -> None
     assert collector.collected_urls == [root_url, detail_url]
     assert [visit.target.url for visit in result.visits] == [root_url, detail_url]
     assert result.stop_reasons == []
+
+
+def test_runner_completes_bound_task_and_notifies_terminal_callback() -> None:
+    root_url = "https://app.example.test/root"
+    task = ExplorationTask.create(task_id="task-1")
+    observed_states: list[ExplorationTaskState] = []
+    task.register_terminal_callback(lambda: observed_states.append(task.state))
+    task.start_collection()
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
+        collector=FakeCollector(
+            {
+                root_url: make_snapshot(
+                    source={
+                        "requested_url": root_url,
+                        "final_url": root_url,
+                        "title": "Root",
+                    }
+                )
+            }
+        ),
+        task=task,
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert result.status == "completed"
+    assert task.state == ExplorationTaskState.COMPLETED
+    assert observed_states == [ExplorationTaskState.COMPLETED]
+
+
+def test_runner_marks_bound_task_partial_and_notifies_terminal_callback() -> None:
+    task = ExplorationTask.create(task_id="task-1")
+    observed_states: list[ExplorationTaskState] = []
+    task.register_terminal_callback(lambda: observed_states.append(task.state))
+    task.start_collection()
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
+        collector=FakeCollector({}),
+        task=task,
+    )
+
+    result = runner.run(
+        modules=[
+            ModuleEntry(
+                module_id="missing",
+                url="https://app.example.test/missing",
+            )
+        ]
+    )
+
+    assert result.status == "partial"
+    assert task.state == ExplorationTaskState.PARTIAL
+    assert task.audit_events[-1].reason_code == "collector_failure"
+    assert observed_states == [ExplorationTaskState.PARTIAL]
 
 
 def test_runner_uses_snapshot_href_candidates_by_default() -> None:

@@ -15,6 +15,7 @@ from ai_ui_explorer.exploration.queue import (
     NavigationCandidate,
     SnapshotVisitResult,
 )
+from ai_ui_explorer.exploration.task import ExplorationTask
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.snapshot.models import SnapshotDocument
 
@@ -49,10 +50,12 @@ class ExplorationRunner:
         budget: ExplorationBudget,
         collector: SnapshotCollectorPort,
         candidate_extractor: CandidateExtractor = extract_navigation_candidates,
+        task: ExplorationTask | None = None,
     ) -> None:
         self._queue = BoundedExplorationQueue(policy=policy, budget=budget)
         self._collector = collector
         self._candidate_extractor = candidate_extractor
+        self._task = task
 
     def run(self, *, modules: list[ModuleEntry]) -> ExplorationRunResult:
         enqueue_decisions = self._queue.seed_modules(modules)
@@ -88,10 +91,16 @@ class ExplorationRunner:
                 )
             )
 
-        return ExplorationRunResult(
+        result = ExplorationRunResult(
             status="partial" if errors else "completed",
             visits=visits,
             enqueue_decisions=enqueue_decisions,
             errors=errors,
             stop_reasons=sorted(set(stop_reasons)),
         )
+        if self._task is not None:
+            if result.status == "completed":
+                self._task.complete()
+            else:
+                self._task.mark_partial(reason_code="collector_failure")
+        return result

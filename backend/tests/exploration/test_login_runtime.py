@@ -54,7 +54,11 @@ class _FakeBrowser:
 
 
 class _FakeCollector:
-    pass
+    def __init__(self, browser: _FakeBrowser) -> None:
+        self._browser = browser
+
+    def is_bound_to(self, browser: PlaywrightBrowserSession) -> bool:
+        return self._browser is browser
 
 
 def _plan() -> AuthenticationPlan:
@@ -84,7 +88,7 @@ def _session(
 ]:
     task = ExplorationTask.create(task_id="task-1")
     fake_browser = browser or _FakeBrowser()
-    collector = _FakeCollector()
+    collector = _FakeCollector(fake_browser)
     session = HumanLoginSession(
         task=task,
         plan=plan or _plan(),
@@ -93,6 +97,23 @@ def _session(
         collector=cast(SessionSnapshotCollectorAdapter, collector),
     )
     return session, task, fake_browser, collector
+
+
+def test_session_rejects_collector_bound_to_another_browser() -> None:
+    browser = _FakeBrowser()
+    collector = _FakeCollector(_FakeBrowser())
+
+    with pytest.raises(
+        HumanLoginRuntimeError,
+        match=r"^Session collector is not bound to browser\.$",
+    ):
+        HumanLoginSession(
+            task=ExplorationTask.create(task_id="task-1"),
+            plan=_plan(),
+            policy=_policy(),
+            browser=cast(PlaywrightBrowserSession, browser),
+            collector=cast(SessionSnapshotCollectorAdapter, collector),
+        )
 
 
 def _started_session(

@@ -1,5 +1,6 @@
 """Adapters that let controlled exploration reuse Sprint 1 snapshot collection."""
 
+from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
 
@@ -25,3 +26,22 @@ class SnapshotCollectorAdapter:
 
 class SessionSnapshotCollectorAdapter(SnapshotCollectorAdapter):
     """Bind controlled exploration to a task-scoped browser session collector."""
+
+    def __init__(
+        self,
+        *,
+        session: PlaywrightBrowserSession,
+        limits: SnapshotLimits,
+        collector: SnapshotCollector | None = None,
+    ) -> None:
+        bound_collector = collector or SnapshotCollector(source=session)
+        if not bound_collector.is_bound_to_source(session):
+            raise ValueError(
+                "Session collector source does not match browser session."
+            )
+        self._session = session
+        super().__init__(collector=bound_collector, limits=limits)
+
+    def is_bound_to(self, session: PlaywrightBrowserSession) -> bool:
+        """Check session identity without exposing Playwright automation objects."""
+        return self._session is session

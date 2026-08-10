@@ -139,7 +139,7 @@ def test_session_collector_observes_login_only_dashboard(login_site: LoginSite) 
         session.goto(login_site.login_url)
         session.page.locator("#fixture-login").click()
         snapshot = SessionSnapshotCollectorAdapter(
-            collector=SnapshotCollector(source=session),
+            session=session,
             limits=SnapshotLimits(),
         ).collect(login_site.dashboard_url)
     finally:
@@ -161,7 +161,11 @@ Expected: import error for `PlaywrightBrowserSession` 或 `SessionSnapshotCollec
 
 `PlaywrightBrowserSession` 使用 `sync_playwright()`、`chromium.launch()`、单一 `browser.new_context()` 和单一 Page；注册与现有 source 相同的 observation/scroll selector。`collect` 必须复用该 Page 并调用同一个私有观察函数。`close` 必须按 Page、Context、Browser、Playwright 顺序幂等关闭，且类中不得出现 `storage_state`。
 
-`SessionSnapshotCollectorAdapter` 的异常面与 `SnapshotCollectorAdapter` 保持一致：对 `CollectionFailedError` 仅抛出固定的 `"Controlled exploration snapshot collection failed."`。
+`SessionSnapshotCollectorAdapter` 以 `session + limits` 安全构造并默认自行创建
+`SnapshotCollector(source=session)`；显式注入 Collector 时必须拒绝 source 与 session 身份不一致。
+`HumanLoginSession` 也必须验证 Collector 与 Browser Session 绑定同一对象。异常面与
+`SnapshotCollectorAdapter` 保持一致：对 `CollectionFailedError` 仅抛出固定的
+`"Controlled exploration snapshot collection failed."`。
 
 - [ ] **Step 4: 运行真实浏览器回归。**
 
@@ -242,7 +246,7 @@ def confirm_and_verify(self) -> AuthenticationVerification:
     )
 ```
 
-`confirm_and_verify` 必须先确认当前 URL 被 policy 作为目标 Origin 允许，再执行 `has_css`；若 Browser 关闭或验证异常，只返回固定失败原因码并使任务回到暂停状态。`close` 必须调用 Browser Session 的 `close`；`complete`、`cancel` 和运行时异常路径调用同一清理函数。
+`confirm_and_verify` 必须先确认当前 URL 被 policy 作为目标 Origin 允许，再执行 `has_css`；若 Browser 关闭或验证异常，只返回固定失败原因码并使任务回到暂停状态。`close` 必须调用 Browser Session 的 `close`；`complete`、`partial`、`cancel` 和运行时异常路径调用同一清理函数。
 
 - [ ] **Step 4: 运行运行时测试。**
 
@@ -273,10 +277,10 @@ git commit -m "feat: add human login runtime"
 
 ```python
 def test_human_login_runtime_resumes_controlled_exploration(login_site: LoginSite) -> None:
-    runtime = make_browser_runtime(login_site)
+    runtime, task, browser = make_browser_runtime(login_site)
     try:
         runtime.start()
-        runtime.browser.page.locator("#fixture-login").click()
+        simulate_human_login(runtime)
 
         assert runtime.confirm_and_verify().authenticated is True
 
@@ -284,12 +288,15 @@ def test_human_login_runtime_resumes_controlled_exploration(login_site: LoginSit
             policy=login_site.policy,
             budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
             collector=runtime.collector_port(),
+            task=task,
         ).run(modules=[ModuleEntry(module_id="dashboard", url=login_site.dashboard_url)])
+
+        assert result.status == "completed"
+        assert len(result.visits) == 1
+        assert task.state is ExplorationTaskState.COMPLETED
+        assert browser_session_is_closed(browser)
     finally:
         runtime.close()
-
-    assert result.status == "completed"
-    assert len(result.visits) == 1
 ```
 
 - [ ] **Step 2: 运行端到端测试，确认在运行时实现前失败。**

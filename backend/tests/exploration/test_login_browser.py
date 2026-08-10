@@ -11,6 +11,8 @@ from ai_ui_explorer.exploration import (
     ExplorationBudget,
     ExplorationRunner,
     ExplorationTask,
+    ExplorationTaskState,
+    HumanLoginRuntimeError,
     HumanLoginSession,
     ModuleEntry,
 )
@@ -37,10 +39,17 @@ def _browser_session(runtime: HumanLoginSession) -> PlaywrightBrowserSession:
     )
 
 
-def _make_browser_runtime(login_site: LoginSite) -> HumanLoginSession:
+def _browser_session_is_closed(session: PlaywrightBrowserSession) -> bool:
+    return cast(bool, object.__getattribute__(session, "_closed"))
+
+
+def _make_browser_runtime(
+    login_site: LoginSite,
+) -> tuple[HumanLoginSession, ExplorationTask, PlaywrightBrowserSession]:
     browser = PlaywrightBrowserSession.open(headless=False)
-    return HumanLoginSession(
-        task=ExplorationTask.create(task_id="fixture-human-login"),
+    task = ExplorationTask.create(task_id="fixture-human-login")
+    runtime = HumanLoginSession(
+        task=task,
         plan=AuthenticationPlan(
             authentication_url=login_site.login_url,
             post_login_url_prefix=login_site.dashboard_url,
@@ -49,10 +58,11 @@ def _make_browser_runtime(login_site: LoginSite) -> HumanLoginSession:
         policy=login_site.policy,
         browser=browser,
         collector=SessionSnapshotCollectorAdapter(
-            collector=SnapshotCollector(source=browser),
+            session=browser,
             limits=SnapshotLimits(),
         ),
     )
+    return runtime, task, browser
 
 
 def _simulate_human_login(runtime: HumanLoginSession) -> None:
@@ -63,9 +73,9 @@ def _simulate_human_login(runtime: HumanLoginSession) -> None:
 def test_human_login_runtime_resumes_controlled_exploration(
     login_site: LoginSite,
 ) -> None:
-    runtime = _make_browser_runtime(login_site)
+    runtime, task, browser = _make_browser_runtime(login_site)
     try:
-        assert _browser_session(runtime).is_headless is False
+        assert browser.is_headless is False
         runtime.start()
         _simulate_human_login(runtime)
 
@@ -79,6 +89,7 @@ def test_human_login_runtime_resumes_controlled_exploration(
                 max_queue_size=1,
             ),
             collector=runtime.collector_port(),
+            task=task,
         ).run(
             modules=[
                 ModuleEntry(
@@ -87,11 +98,18 @@ def test_human_login_runtime_resumes_controlled_exploration(
                 )
             ]
         )
+
+        assert result.status == "completed"
+        assert len(result.visits) == 1
+        assert task.state == ExplorationTaskState.COMPLETED
+        assert _browser_session_is_closed(browser) is True
+        with pytest.raises(
+            HumanLoginRuntimeError,
+            match=r"^Authentication is not verified\.$",
+        ):
+            runtime.collector_port()
     finally:
         runtime.close()
-
-    assert result.status == "completed"
-    assert len(result.visits) == 1
 
 
 def test_session_collector_observes_login_only_dashboard(login_site: LoginSite) -> None:
@@ -100,7 +118,7 @@ def test_session_collector_observes_login_only_dashboard(login_site: LoginSite) 
         session.goto(login_site.login_url)
         _fixture_page(session).locator("#fixture-login").click()
         snapshot = SessionSnapshotCollectorAdapter(
-            collector=SnapshotCollector(source=session),
+            session=session,
             limits=SnapshotLimits(),
         ).collect(login_site.dashboard_url)
     finally:
@@ -235,7 +253,7 @@ def test_session_snapshot_does_not_expose_fixture_authentication_marker(
         session.goto(login_site.login_url)
         _fixture_page(session).locator("#fixture-login").click()
         snapshot = SessionSnapshotCollectorAdapter(
-            collector=SnapshotCollector(source=session),
+            session=session,
             limits=SnapshotLimits(),
         ).collect(login_site.dashboard_url)
     finally:
@@ -288,8 +306,9 @@ class _StoppingResource:
 
 
 def test_session_collector_adapter_uses_fixed_collection_error() -> None:
+    source = _FailingObservationSource()
     adapter = SessionSnapshotCollectorAdapter(
-        collector=SnapshotCollector(source=_FailingObservationSource()),
+        session=cast(PlaywrightBrowserSession, source),
         limits=SnapshotLimits(),
     )
 
@@ -298,3 +317,18 @@ def test_session_collector_adapter_uses_fixed_collection_error() -> None:
         match=r"^Controlled exploration snapshot collection failed\.$",
     ):
         adapter.collect("https://app.example.test/dashboard")
+
+
+def test_session_collector_adapter_rejects_collector_bound_to_other_session() -> None:
+    session = cast(PlaywrightBrowserSession, _FailingObservationSource())
+    other_session = _FailingObservationSource()
+
+    with pytest.raises(
+        ValueError,
+        match=r"^Session collector source does not match browser session\.$",
+    ):
+        SessionSnapshotCollectorAdapter(
+            session=session,
+            collector=SnapshotCollector(source=other_session),
+            limits=SnapshotLimits(),
+        )
