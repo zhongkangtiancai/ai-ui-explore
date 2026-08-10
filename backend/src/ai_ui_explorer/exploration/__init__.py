@@ -1,5 +1,10 @@
 """Sprint 4 controlled exploration foundations."""
 
+from ai_ui_explorer.exploration.authentication import (
+    AuthenticationError,
+    AuthenticationPlan,
+    AuthenticationVerification,
+)
 from ai_ui_explorer.exploration.candidates import extract_navigation_candidates
 from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
 from ai_ui_explorer.exploration.policy import (
@@ -41,6 +46,9 @@ from ai_ui_explorer.exploration.task import (
 __all__ = [
     "ActionDecision",
     "ActionGate",
+    "AuthenticationError",
+    "AuthenticationPlan",
+    "AuthenticationVerification",
     "AuditEvent",
     "BoundedExplorationQueue",
     "CandidateAction",
