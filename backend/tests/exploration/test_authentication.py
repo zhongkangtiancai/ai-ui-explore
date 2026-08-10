@@ -26,6 +26,21 @@ def test_plan_rejects_authentication_url_outside_authentication_origins() -> Non
         plan.validate(policy)
 
 
+def test_plan_rejects_target_origin_as_authentication_url() -> None:
+    plan = AuthenticationPlan(
+        authentication_url="https://app.example.test/login",
+        post_login_url_prefix="https://app.example.test/dashboard",
+        checkpoint_css_selector="#signed-in-marker",
+    )
+    policy = NavigationPolicy(
+        allowed_origins=["https://app.example.test"],
+        authentication_origins=["https://sso.example.test"],
+    )
+
+    with pytest.raises(AuthenticationError, match="Authentication plan denied"):
+        plan.validate(policy)
+
+
 def test_plan_rejects_post_login_prefix_outside_target_origin() -> None:
     plan = AuthenticationPlan(
         authentication_url="https://sso.example.test/login",

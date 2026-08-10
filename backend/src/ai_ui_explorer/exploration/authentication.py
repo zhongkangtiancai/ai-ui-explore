@@ -22,10 +22,14 @@ class AuthenticationPlan(DeepFrozenModel):
         policy: NavigationPolicy,
     ) -> None:
         """Reject plans whose handoff or verification URL is not policy-approved."""
-        if not policy.evaluate(
+        authentication_decision = policy.evaluate(
             self.authentication_url,
             authentication_handoff=True,
-        ).allowed:
+        )
+        if (
+            not authentication_decision.allowed
+            or authentication_decision.origin not in policy.authentication_origins
+        ):
             raise AuthenticationError("Authentication plan denied.")
         if not policy.evaluate(self.post_login_url_prefix).allowed:
             raise AuthenticationError("Authentication plan denied.")
