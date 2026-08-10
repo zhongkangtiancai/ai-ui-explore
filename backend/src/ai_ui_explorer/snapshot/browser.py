@@ -664,10 +664,6 @@ class PlaywrightBrowserSession:
         )
 
     @property
-    def page(self) -> Page:
-        return self._page
-
-    @property
     def current_url(self) -> str:
         return self._page.url
 

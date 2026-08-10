@@ -18,11 +18,15 @@ from ai_ui_explorer.snapshot.models import SnapshotLimits
 from tests.snapshot.conftest import LoginSite
 
 
+def _fixture_page(session: PlaywrightBrowserSession) -> Page:
+    return cast(Page, object.__getattribute__(session, "_page"))
+
+
 def test_session_collector_observes_login_only_dashboard(login_site: LoginSite) -> None:
     session = PlaywrightBrowserSession.open(headless=True)
     try:
         session.goto(login_site.login_url)
-        session.page.locator("#fixture-login").click()
+        _fixture_page(session).locator("#fixture-login").click()
         snapshot = SessionSnapshotCollectorAdapter(
             collector=SnapshotCollector(source=session),
             limits=SnapshotLimits(),
@@ -43,6 +47,23 @@ def test_browser_session_close_is_idempotent() -> None:
 
     session.close()
     session.close()
+
+
+def test_browser_session_public_api_does_not_expose_automation_objects() -> None:
+    session = PlaywrightBrowserSession.open(headless=True)
+    try:
+        public_values = [
+            getattr(session, name)
+            for name in dir(session)
+            if not name.startswith("_")
+        ]
+    finally:
+        session.close()
+
+    assert not any(
+        isinstance(value, Page | BrowserContext)
+        for value in public_values
+    )
 
 
 @pytest.mark.parametrize(
@@ -94,17 +115,17 @@ def test_session_collection_reuses_the_existing_page(login_site: LoginSite) -> N
     session = PlaywrightBrowserSession.open(headless=True)
     try:
         session.goto(login_site.login_url)
-        original_page = session.page
+        original_page = _fixture_page(session)
         created_pages: list[Page] = []
 
         def record_created_page(page: Page) -> None:
             created_pages.append(page)
 
-        session.page.context.on("page", record_created_page)
+        original_page.context.on("page", record_created_page)
 
         session.collect(login_site.login_url, SnapshotLimits())
 
-        assert session.page is original_page
+        assert _fixture_page(session) is original_page
         assert created_pages == []
     finally:
         session.close()
@@ -116,7 +137,7 @@ def test_session_snapshot_does_not_expose_fixture_authentication_marker(
     session = PlaywrightBrowserSession.open(headless=True)
     try:
         session.goto(login_site.login_url)
-        session.page.locator("#fixture-login").click()
+        _fixture_page(session).locator("#fixture-login").click()
         snapshot = SessionSnapshotCollectorAdapter(
             collector=SnapshotCollector(source=session),
             limits=SnapshotLimits(),
