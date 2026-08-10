@@ -27,10 +27,10 @@
 - Create: `backend/tests/exploration/test_login_runtime.py` — 人工确认、认证失败、关闭等纯运行时测试。
 - Modify: `backend/src/ai_ui_explorer/snapshot/browser.py` — 抽取可复用的 Context/Page 观察路径，并增加内存态会话采集接口。
 - Modify: `backend/src/ai_ui_explorer/exploration/collector_adapter.py` — 增加绑定会话的 Collector Port。
-- Modify: `backend/src/ai_ui_explorer/exploration/__init__.py` — 仅导出公开认证与运行时类型。
 - Modify: `backend/tests/snapshot/conftest.py` — 提供独立的本地登录 fixture URL。
 - Create: `backend/tests/fixtures/login_site/login.html` — 本地模拟登录页。
 - Create: `backend/tests/fixtures/login_site/dashboard.html` — 仅登录后可访问的本地页和检查点。
+- Modify: `backend/src/ai_ui_explorer/exploration/__init__.py` — 仅导出公开认证与运行时类型。
 - Create: `backend/tests/exploration/test_login_browser.py` — 真实 Chromium 的同 Context 登录后采集验收。
 - Modify: `docs/00-project-context.md`、`docs/02-architecture.md`、`docs/07-roadmap.md`、`docs/superpowers/plans/2026-07-31-controlled-exploration.md` — 只在功能和验收实际完成后更新状态。
 
@@ -121,6 +121,9 @@ git commit -m "feat: add authentication plan validation"
 **Files:**
 - Modify: `backend/src/ai_ui_explorer/snapshot/browser.py`
 - Modify: `backend/src/ai_ui_explorer/exploration/collector_adapter.py`
+- Modify: `backend/tests/snapshot/conftest.py`
+- Create: `backend/tests/fixtures/login_site/login.html`
+- Create: `backend/tests/fixtures/login_site/dashboard.html`
 - Create: `backend/tests/exploration/test_login_browser.py`
 
 **Interfaces:**
@@ -257,9 +260,6 @@ git commit -m "feat: add human login runtime"
 ## Task 4: 本地登录验收、文档与质量门
 
 **Files:**
-- Create: `backend/tests/fixtures/login_site/login.html`
-- Create: `backend/tests/fixtures/login_site/dashboard.html`
-- Modify: `backend/tests/snapshot/conftest.py`
 - Modify: `docs/00-project-context.md`
 - Modify: `docs/02-architecture.md`
 - Modify: `docs/07-roadmap.md`
@@ -298,15 +298,11 @@ Run: `..\.venv\Scripts\python.exe -m pytest -q tests\exploration\test_login_brow
 
 Expected: 运行时或本地登录 fixture 缺失。
 
-- [ ] **Step 3: 实现本地登录 fixture。**
-
-`login.html` 只设置一个 fixture Cookie 并使用 `location.assign('/dashboard.html')` 跳转；不得包含真实或看似真实的账号密码。`dashboard.html` 在客户端检查 fixture Cookie，缺失时跳回登录页；存在时渲染 `id="signed-in-marker"` 和一个只读链接。`login_site` fixture 启动独立 `127.0.0.1` HTTP server，并为 `NavigationPolicy` 提供 `allow_local_http=True` 的 allowed/authentication origins。
-
-- [ ] **Step 4: 更新完成状态文档。**
+- [ ] **Step 3: 更新完成状态文档。**
 
 文档必须明确：已实现的是本地、内存态、人工确认、配置验证的人机协同登录运行时；未实现跨任务复用、加密存储、SSO/扫码/MFA、前端确认页、外部站点登录与访问控制绕过。
 
-- [ ] **Step 5: 运行质量门。**
+- [ ] **Step 4: 运行质量门。**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\exploration tests\snapshot\test_browser.py`
 
@@ -318,10 +314,10 @@ Run: `git diff --check`
 
 Expected: 全部命令退出码为 0；不因工具输出会话结束而假定 pytest 已完成，应确认实际 Python pytest 进程已退出。
 
-- [ ] **Step 6: 提交验收与文档。**
+- [ ] **Step 5: 提交验收与文档。**
 
 ```powershell
-git add backend/tests/fixtures/login_site backend/tests/snapshot/conftest.py backend/tests/exploration/test_login_browser.py docs/00-project-context.md docs/02-architecture.md docs/07-roadmap.md docs/superpowers/plans/2026-07-31-controlled-exploration.md
+git add backend/tests/exploration/test_login_browser.py docs/00-project-context.md docs/02-architecture.md docs/07-roadmap.md docs/superpowers/plans/2026-07-31-controlled-exploration.md docs/superpowers/plans/2026-08-10-human-login-runtime.md
 git commit -m "test: verify human login exploration runtime"
 ```
 

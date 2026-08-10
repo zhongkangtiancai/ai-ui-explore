@@ -6,6 +6,14 @@ import pytest
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright
 from playwright.sync_api import Error as PlaywrightError
 
+from ai_ui_explorer.exploration import (
+    AuthenticationPlan,
+    ExplorationBudget,
+    ExplorationRunner,
+    ExplorationTask,
+    HumanLoginSession,
+    ModuleEntry,
+)
 from ai_ui_explorer.exploration.collector_adapter import (
     SessionSnapshotCollectorAdapter,
 )
@@ -20,6 +28,70 @@ from tests.snapshot.conftest import LoginSite
 
 def _fixture_page(session: PlaywrightBrowserSession) -> Page:
     return cast(Page, object.__getattribute__(session, "_page"))
+
+
+def _browser_session(runtime: HumanLoginSession) -> PlaywrightBrowserSession:
+    return cast(
+        PlaywrightBrowserSession,
+        object.__getattribute__(runtime, "_browser"),
+    )
+
+
+def _make_browser_runtime(login_site: LoginSite) -> HumanLoginSession:
+    browser = PlaywrightBrowserSession.open(headless=False)
+    return HumanLoginSession(
+        task=ExplorationTask.create(task_id="fixture-human-login"),
+        plan=AuthenticationPlan(
+            authentication_url=login_site.login_url,
+            post_login_url_prefix=login_site.dashboard_url,
+            checkpoint_css_selector="#signed-in-marker",
+        ),
+        policy=login_site.policy,
+        browser=browser,
+        collector=SessionSnapshotCollectorAdapter(
+            collector=SnapshotCollector(source=browser),
+            limits=SnapshotLimits(),
+        ),
+    )
+
+
+def _simulate_human_login(runtime: HumanLoginSession) -> None:
+    session = _browser_session(runtime)
+    _fixture_page(session).locator("#fixture-login").click()
+
+
+def test_human_login_runtime_resumes_controlled_exploration(
+    login_site: LoginSite,
+) -> None:
+    runtime = _make_browser_runtime(login_site)
+    try:
+        assert _browser_session(runtime).is_headless is False
+        runtime.start()
+        _simulate_human_login(runtime)
+
+        assert runtime.confirm_and_verify().authenticated is True
+
+        result = ExplorationRunner(
+            policy=login_site.policy,
+            budget=ExplorationBudget(
+                max_pages=1,
+                max_depth=0,
+                max_queue_size=1,
+            ),
+            collector=runtime.collector_port(),
+        ).run(
+            modules=[
+                ModuleEntry(
+                    module_id="dashboard",
+                    url=login_site.dashboard_url,
+                )
+            ]
+        )
+    finally:
+        runtime.close()
+
+    assert result.status == "completed"
+    assert len(result.visits) == 1
 
 
 def test_session_collector_observes_login_only_dashboard(login_site: LoginSite) -> None:
