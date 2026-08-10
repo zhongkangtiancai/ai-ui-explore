@@ -21,3 +21,7 @@ class SnapshotCollectorAdapter:
             raise CollectionFailedError(
                 "Controlled exploration snapshot collection failed."
             ) from None
+
+
+class SessionSnapshotCollectorAdapter(SnapshotCollectorAdapter):
+    """Bind controlled exploration to a task-scoped browser session collector."""

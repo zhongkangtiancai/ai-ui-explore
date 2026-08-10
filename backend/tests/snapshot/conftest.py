@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from dataclasses import dataclass
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,7 +13,17 @@ from urllib.parse import parse_qs, quote, urljoin, urlsplit
 
 import pytest
 
+from ai_ui_explorer.exploration.policy import NavigationPolicy
+
 _FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "snapshot_site"
+_LOGIN_FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "login_site"
+
+
+@dataclass(frozen=True, slots=True)
+class LoginSite:
+    login_url: str
+    dashboard_url: str
+    policy: NavigationPolicy
 
 
 class _QuietFixtureHandler(SimpleHTTPRequestHandler):
@@ -95,3 +106,21 @@ def primary_url(secondary_url: str) -> Generator[str]:
 def locator_page_url(primary_url: str) -> str:
     query = urlsplit(primary_url).query
     return urljoin(primary_url, f"/locator-candidates.html?{query}")
+
+
+@pytest.fixture(scope="session")
+def login_site() -> Generator[LoginSite]:
+    server, thread = _serve(_LOGIN_FIXTURE_ROOT)
+    try:
+        origin = f"http://127.0.0.1:{server.server_port}"
+        yield LoginSite(
+            login_url=f"{origin}/login.html",
+            dashboard_url=f"{origin}/dashboard.html",
+            policy=NavigationPolicy(
+                allowed_origins=[origin],
+                authentication_origins=[origin],
+                allow_local_http=True,
+            ),
+        )
+    finally:
+        _stop_server(server, thread, started=True)

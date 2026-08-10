@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>本地登录测试页</title>
+  </head>
+  <body>
+    <button id="fixture-login" type="button">进入测试控制台</button>
+    <script>
+      document.querySelector("#fixture-login").addEventListener("click", () => {
+        document.cookie = "fixture_authenticated=1; Path=/; SameSite=Lax";
+        location.assign("/dashboard.html");
+      });
+    </script>
+  </body>
+</html>

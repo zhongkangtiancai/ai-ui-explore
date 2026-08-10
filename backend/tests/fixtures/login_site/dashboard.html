@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>本地测试控制台</title>
+    <script>
+      if (!document.cookie.split("; ").includes("fixture_authenticated=1")) {
+        location.assign("/login.html");
+      }
+    </script>
+  </head>
+  <body>
+    <button id="signed-in-marker" type="button">已认证测试标记</button>
+    <a href="/dashboard.html?view=details">查看测试详情</a>
+  </body>
+</html>

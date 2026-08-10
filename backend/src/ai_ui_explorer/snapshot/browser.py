@@ -12,8 +12,15 @@ from pathlib import Path
 from time import monotonic
 from typing import Literal, Protocol, TypedDict, cast
 
+from playwright.sync_api import (
+    Browser,
+    BrowserContext,
+    Frame,
+    Page,
+    Playwright,
+    sync_playwright,
+)
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import Frame, Page, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from ai_ui_explorer.snapshot.models import (
@@ -597,89 +604,192 @@ class PlaywrightBrowserSource:
         _configure_local_browser_path()
         deadline = monotonic() + (limits.total_timeout_ms / 1_000)
         with _managed_page(headless=self._headless, deadline=deadline) as page:
-            page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=_remaining_milliseconds(deadline),
+            return _collect_page_observation(
+                page=page,
+                url=url,
+                limits=limits,
+                deadline=deadline,
             )
-            _raise_if_deadline_reached(deadline)
-            _wait_for_dynamic_frames(page, deadline)
-            _raise_if_deadline_reached(deadline)
 
-            ordered_frames = _ordered_frames(page.main_frame)
-            page_errors: list[RawErrorObservation] = []
-            frame_limit_reached = len(ordered_frames) > limits.max_frames
-            if frame_limit_reached:
-                ordered_frames = ordered_frames[: limits.max_frames]
-                page_errors.append(
-                    _raw_error(
-                        scope="page",
-                        error_code="max_frames_reached",
-                        message="Frame collection stopped at the configured maximum.",
-                    )
-                )
 
-            frame_ids = {
-                id(frame): f"frame-{index}" for index, frame in enumerate(ordered_frames)
-            }
-            frames: list[RawFrameObservation] = []
-            observed_elements = 0
-            deadline_reached = False
-            for traversal_index, frame in enumerate(ordered_frames):
-                remaining_elements = max(limits.max_elements - observed_elements, 0)
-                frame_observation = (
-                    _element_budget_exhausted_frame(
-                        frame=frame,
-                        frame_id=frame_ids[id(frame)],
-                        frame_ids=frame_ids,
-                        traversal_index=traversal_index,
-                    )
-                    if remaining_elements == 0
-                    else _observe_frame(
-                        frame=frame,
-                        frame_id=frame_ids[id(frame)],
-                        frame_ids=frame_ids,
-                        traversal_index=traversal_index,
-                        remaining_elements=remaining_elements,
-                        limits=limits,
-                        deadline=deadline,
-                    )
-                )
-                frames.append(frame_observation)
-                observed_elements += len(frame_observation.elements)
-                deadline_reached = deadline_reached or frame_observation.stop_reason == "deadline"
+class PlaywrightBrowserSession:
+    def __init__(
+        self,
+        *,
+        playwright: Playwright,
+        browser: Browser,
+        context: BrowserContext,
+        page: Page,
+    ) -> None:
+        self._playwright = playwright
+        self._browser = browser
+        self._context = context
+        self._page = page
+        self._closed = False
 
-            if frame_limit_reached and frames:
-                root_frame = frames[0]
-                if root_frame.status == "completed":
-                    root_frame.status = "partial"
-                root_frame.truncated = True
-                if root_frame.stop_reason is None:
-                    root_frame.stop_reason = "max_frames"
+    @classmethod
+    def open(cls, *, headless: bool) -> PlaywrightBrowserSession:
+        _configure_local_browser_path()
+        playwright = sync_playwright().start()
+        try:
+            _register_custom_selectors(playwright)
+            browser = _launch_browser(playwright, headless=headless)
+        except BaseException:
+            with suppress(PlaywrightError):
+                playwright.stop()
+            raise
+        try:
+            context = browser.new_context()
+        except BaseException:
+            with suppress(PlaywrightError):
+                browser.close()
+            with suppress(PlaywrightError):
+                playwright.stop()
+            raise
+        try:
+            page = context.new_page()
+        except BaseException:
+            with suppress(PlaywrightError):
+                context.close()
+            with suppress(PlaywrightError):
+                browser.close()
+            with suppress(PlaywrightError):
+                playwright.stop()
+            raise
+        return cls(
+            playwright=playwright,
+            browser=browser,
+            context=context,
+            page=page,
+        )
 
-            viewport = page.viewport_size or {"width": 1280, "height": 720}
-            if deadline_reached:
-                language = None
-                title = ""
-            else:
-                language = page.locator("html").get_attribute(
-                    "lang",
-                    timeout=_remaining_milliseconds(deadline),
-                )
-                _raise_if_deadline_reached(deadline)
-                page.set_default_timeout(_remaining_milliseconds(deadline))
-                title = page.title()
-                _raise_if_deadline_reached(deadline)
-            return RawPageObservation(
-                final_url=page.url,
-                title=title,
-                viewport_width=viewport["width"],
-                viewport_height=viewport["height"],
-                language=language,
-                frames=frames,
-                errors=page_errors,
-                deadline_reached=deadline_reached,
+    @property
+    def page(self) -> Page:
+        return self._page
+
+    @property
+    def current_url(self) -> str:
+        return self._page.url
+
+    def goto(self, url: str) -> None:
+        self._page.goto(url, wait_until="domcontentloaded")
+
+    def has_css(self, selector: str) -> bool:
+        return self._page.locator(selector).count() > 0
+
+    def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
+        deadline = monotonic() + (limits.total_timeout_ms / 1_000)
+        return _collect_page_observation(
+            page=self._page,
+            url=url,
+            limits=limits,
+            deadline=deadline,
+        )
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        with suppress(PlaywrightError):
+            self._page.close()
+        with suppress(PlaywrightError):
+            self._context.close()
+        with suppress(PlaywrightError):
+            self._browser.close()
+        with suppress(PlaywrightError):
+            self._playwright.stop()
+
+
+def _collect_page_observation(
+    *,
+    page: Page,
+    url: str,
+    limits: SnapshotLimits,
+    deadline: float,
+) -> RawPageObservation:
+    page.goto(
+        url,
+        wait_until="domcontentloaded",
+        timeout=_remaining_milliseconds(deadline),
+    )
+    _raise_if_deadline_reached(deadline)
+    _wait_for_dynamic_frames(page, deadline)
+    _raise_if_deadline_reached(deadline)
+
+    ordered_frames = _ordered_frames(page.main_frame)
+    page_errors: list[RawErrorObservation] = []
+    frame_limit_reached = len(ordered_frames) > limits.max_frames
+    if frame_limit_reached:
+        ordered_frames = ordered_frames[: limits.max_frames]
+        page_errors.append(
+            _raw_error(
+                scope="page",
+                error_code="max_frames_reached",
+                message="Frame collection stopped at the configured maximum.",
             )
+        )
+
+    frame_ids = {
+        id(frame): f"frame-{index}" for index, frame in enumerate(ordered_frames)
+    }
+    frames: list[RawFrameObservation] = []
+    observed_elements = 0
+    deadline_reached = False
+    for traversal_index, frame in enumerate(ordered_frames):
+        remaining_elements = max(limits.max_elements - observed_elements, 0)
+        frame_observation = (
+            _element_budget_exhausted_frame(
+                frame=frame,
+                frame_id=frame_ids[id(frame)],
+                frame_ids=frame_ids,
+                traversal_index=traversal_index,
+            )
+            if remaining_elements == 0
+            else _observe_frame(
+                frame=frame,
+                frame_id=frame_ids[id(frame)],
+                frame_ids=frame_ids,
+                traversal_index=traversal_index,
+                remaining_elements=remaining_elements,
+                limits=limits,
+                deadline=deadline,
+            )
+        )
+        frames.append(frame_observation)
+        observed_elements += len(frame_observation.elements)
+        deadline_reached = deadline_reached or frame_observation.stop_reason == "deadline"
+
+    if frame_limit_reached and frames:
+        root_frame = frames[0]
+        if root_frame.status == "completed":
+            root_frame.status = "partial"
+        root_frame.truncated = True
+        if root_frame.stop_reason is None:
+            root_frame.stop_reason = "max_frames"
+
+    viewport = page.viewport_size or {"width": 1280, "height": 720}
+    if deadline_reached:
+        language = None
+        title = ""
+    else:
+        language = page.locator("html").get_attribute(
+            "lang",
+            timeout=_remaining_milliseconds(deadline),
+        )
+        _raise_if_deadline_reached(deadline)
+        page.set_default_timeout(_remaining_milliseconds(deadline))
+        title = page.title()
+        _raise_if_deadline_reached(deadline)
+    return RawPageObservation(
+        final_url=page.url,
+        title=title,
+        viewport_width=viewport["width"],
+        viewport_height=viewport["height"],
+        language=language,
+        frames=frames,
+        errors=page_errors,
+        deadline_reached=deadline_reached,
+    )
 
 
 class _RawBoundsPayload(TypedDict):
@@ -738,30 +848,12 @@ class _RawFramePayload(TypedDict):
 @contextmanager
 def _managed_page(*, headless: bool, deadline: float) -> Iterator[Page]:
     with sync_playwright() as playwright:
-        playwright.selectors.register(
-            _OBSERVATION_SELECTOR,
-            script=_OBSERVATION_SELECTOR_ENGINE,
-            content_script=True,
+        _register_custom_selectors(playwright)
+        browser = _launch_browser(
+            playwright,
+            headless=headless,
+            timeout=_remaining_milliseconds(deadline),
         )
-        from ai_ui_explorer.snapshot.scrolling import (
-            _SCROLL_SELECTOR,
-            _SCROLL_SELECTOR_ENGINE,
-        )
-
-        playwright.selectors.register(
-            _SCROLL_SELECTOR,
-            script=_SCROLL_SELECTOR_ENGINE,
-            content_script=True,
-        )
-        try:
-            browser = playwright.chromium.launch(
-                headless=headless,
-                timeout=_remaining_milliseconds(deadline),
-            )
-        except PlaywrightError as exc:
-            if "executable doesn't exist" in str(exc).lower():
-                raise BrowserUnavailableError(_browser_install_guidance()) from None
-            raise
 
         try:
             _raise_if_deadline_reached(deadline)
@@ -781,6 +873,40 @@ def _managed_page(*, headless: bool, deadline: float) -> Iterator[Page]:
         finally:
             with suppress(PlaywrightError):
                 browser.close()
+
+
+def _register_custom_selectors(playwright: Playwright) -> None:
+    playwright.selectors.register(
+        _OBSERVATION_SELECTOR,
+        script=_OBSERVATION_SELECTOR_ENGINE,
+        content_script=True,
+    )
+    from ai_ui_explorer.snapshot.scrolling import (
+        _SCROLL_SELECTOR,
+        _SCROLL_SELECTOR_ENGINE,
+    )
+
+    playwright.selectors.register(
+        _SCROLL_SELECTOR,
+        script=_SCROLL_SELECTOR_ENGINE,
+        content_script=True,
+    )
+
+
+def _launch_browser(
+    playwright: Playwright,
+    *,
+    headless: bool,
+    timeout: int | None = None,
+) -> Browser:
+    try:
+        if timeout is None:
+            return playwright.chromium.launch(headless=headless)
+        return playwright.chromium.launch(headless=headless, timeout=timeout)
+    except PlaywrightError as exc:
+        if "executable doesn't exist" in str(exc).lower():
+            raise BrowserUnavailableError(_browser_install_guidance()) from None
+        raise
 
 
 def _remaining_milliseconds(deadline: float) -> int:
