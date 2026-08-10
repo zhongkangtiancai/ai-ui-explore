@@ -7,6 +7,10 @@ from ai_ui_explorer.exploration.authentication import (
 )
 from ai_ui_explorer.exploration.candidates import extract_navigation_candidates
 from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
+from ai_ui_explorer.exploration.login_runtime import (
+    HumanLoginRuntimeError,
+    HumanLoginSession,
+)
 from ai_ui_explorer.exploration.policy import (
     ActionDecision,
     ActionGate,
@@ -62,6 +66,8 @@ __all__ = [
     "ExplorationTaskError",
     "ExplorationTaskState",
     "ExplorationTarget",
+    "HumanLoginRuntimeError",
+    "HumanLoginSession",
     "ModuleEntry",
     "NavigationCandidate",
     "NavigationDecision",
