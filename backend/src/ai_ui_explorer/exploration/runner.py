@@ -6,6 +6,9 @@ from typing import Literal, Protocol
 from pydantic import Field
 
 from ai_ui_explorer.exploration.candidates import extract_navigation_candidates
+from ai_ui_explorer.exploration.collector_adapter import (
+    _session_collector_matches_task,
+)
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import (
     BoundedExplorationQueue,
@@ -52,12 +55,25 @@ class ExplorationRunner:
         candidate_extractor: CandidateExtractor = extract_navigation_candidates,
         task: ExplorationTask | None = None,
     ) -> None:
+        if task is not None and not _session_collector_matches_task(
+            collector,
+            task,
+        ):
+            raise ValueError("Exploration collector is not bound to task.")
         self._queue = BoundedExplorationQueue(policy=policy, budget=budget)
         self._collector = collector
         self._candidate_extractor = candidate_extractor
         self._task = task
 
     def run(self, *, modules: list[ModuleEntry]) -> ExplorationRunResult:
+        result: ExplorationRunResult | None = None
+        try:
+            result = self._run(modules=modules)
+            return result
+        finally:
+            self._finalize_task(result)
+
+    def _run(self, *, modules: list[ModuleEntry]) -> ExplorationRunResult:
         enqueue_decisions = self._queue.seed_modules(modules)
         visits: list[SnapshotVisitResult] = []
         errors: list[ExplorationRunError] = []
@@ -91,16 +107,20 @@ class ExplorationRunner:
                 )
             )
 
-        result = ExplorationRunResult(
+        return ExplorationRunResult(
             status="partial" if errors else "completed",
             visits=visits,
             enqueue_decisions=enqueue_decisions,
             errors=errors,
             stop_reasons=sorted(set(stop_reasons)),
         )
-        if self._task is not None:
-            if result.status == "completed":
-                self._task.complete()
-            else:
-                self._task.mark_partial(reason_code="collector_failure")
-        return result
+
+    def _finalize_task(self, result: ExplorationRunResult | None) -> None:
+        if self._task is None:
+            return
+        if result is None:
+            self._task.fail(reason_code="runner_failure")
+        elif result.status == "completed":
+            self._task.complete()
+        else:
+            self._task.mark_partial(reason_code="collector_failure")

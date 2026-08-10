@@ -119,6 +119,13 @@ class ExplorationTask(DeepFrozenModel):
         self._append_event("task_partial", reason_code=reason_code)
         self._notify_terminal_callbacks()
 
+    def fail(self, *, reason_code: str) -> None:
+        self._require_not_terminal()
+        self._require_state(ExplorationTaskState.COLLECTING)
+        self._set_state(ExplorationTaskState.FAILED)
+        self._append_event("task_failed", reason_code=reason_code)
+        self._notify_terminal_callbacks()
+
     def cancel(self, *, reason_code: str) -> None:
         self._require_not_terminal()
         self._set_state(ExplorationTaskState.CANCELLED)
@@ -159,5 +166,14 @@ class ExplorationTask(DeepFrozenModel):
     def _notify_terminal_callbacks(self) -> None:
         callbacks = tuple(self._terminal_callbacks)
         self._terminal_callbacks.clear()
+        callback_failed = False
         for callback in callbacks:
-            callback()
+            try:
+                callback()
+            except Exception:
+                callback_failed = True
+        if callback_failed:
+            self._append_event(
+                "terminal_callback_failed",
+                reason_code="cleanup_failure",
+            )

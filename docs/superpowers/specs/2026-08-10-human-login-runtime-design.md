@@ -55,9 +55,11 @@ paused_for_human --(人工在可见浏览器完成登录)--> verifying_authentic
 3. `collector_port`：只在验证成功后提供绑定同一 Context 的 Snapshot Collector Port。
 4. `close`：幂等关闭 Page、Context 和 Browser；任何终态均必须调用。
 
-会话 Collector 由 Browser Session 安全构造；即使测试或扩展显式注入 `SnapshotCollector`，也必须
-校验其 observation source 与会话对象身份一致。`HumanLoginSession` 构造时再次校验 Collector 与
-Browser Session 的绑定关系，不接受跨 Context 错绑。
+会话 Collector 由 Browser Session 和 `ExplorationTask` 对象身份安全构造；即使测试或扩展显式注入
+`SnapshotCollector`，也必须校验其 observation source 与会话对象身份一致。任务绑定证明只由具体
+`SessionSnapshotCollectorAdapter` 持有，并通过模块私有、精确类型和对象身份校验消费；Collector
+Port 不公开 token、绑定对象或可由包装器自报的布尔能力。`HumanLoginSession` 构造时再次校验
+Collector 与 Browser Session、Task 的绑定关系，不接受跨 Context、跨任务错绑或代理包装器。
 
 运行时不得调用 `storage_state()`，不得向文件、日志或模型暴露浏览器存储状态。审计事件只记录状态、
 配置标识和安全原因码，不记录页面敏感内容。
@@ -68,9 +70,12 @@ Browser Session 的绑定关系，不接受跨 Context 错绑。
 必须复用 `HumanLoginSession` 的 Context，在同一 Page 或同一 Context 新建的受控 Page 中进行 Snapshot
 收集。它不执行点击、填充、提交或文件上传；导航候选仍由现有 Runner 的只读规则处理。
 
-Runner 可选绑定同一个 `ExplorationTask`。未绑定时保持原有独立运行行为；绑定时，正常完成进入
-`completed`，存在采集错误的局部结果进入 `partial`，并在 `run` 返回前同步触发任务终态回调销毁
-Browser Context。
+Runner 可选绑定同一个 `ExplorationTask`。未绑定时保持原有独立运行行为；绑定时，仅接受与该任务
+具有模块私有对象身份关系的具体会话 Collector，否则在运行前拒绝。正常完成进入 `completed`，存在已转换为局部结果的
+采集错误进入 `partial`；候选提取、队列或其他未处理的 Runner 异常进入 `failed`，同步触发任务终态
+回调销毁 Browser Context 后再重新抛出原异常。终态回调逐个隔离异常并继续执行，因此某个清理失败
+不会阻止浏览器关闭，也不会覆盖 Runner 的原始异常；清理失败只记录固定审计原因码。该保证只覆盖当前进程内 Runner 能执行 `finally` 的
+路径，不覆盖进程崩溃、强制终止或操作系统故障。
 
 ## 错误与清理
 

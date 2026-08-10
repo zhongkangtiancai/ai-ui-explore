@@ -42,9 +42,12 @@ Sprint 4 已完成第四切片。在前三个切片中实现了受控探索的�
 
 第四切片实现了后端人机协同登录运行时：任务使用进程内存态的可见 Playwright Browser Context，
 由人工显式确认后，按配置的登录后 URL 前缀和 CSS 检查点验证认证结果；验证成功后，Runner 可通过
-经 source 身份校验、绑定同一 Context 的 Collector Port 恢复受控只读探索。Runner 绑定同一任务时，
-会在 completed/partial 结果落定后同步驱动任务终态并关闭会话。该能力只通过本地 HTTP 模拟登录站点
-与真实 Chromium 验收，不持久化 Cookie、Token 或浏览器存储状态，也未对真实外部登录流程做出可用性声明。
+具体会话 Collector 的模块私有、精确类型及 source/session/task 对象身份校验，恢复同一 Context 的
+受控只读探索；Collector Port 不公开可由包装器伪造的任务绑定能力。
+Runner 绑定同一任务时，会在 completed/partial 结果落定后同步驱动对应终态；候选提取、队列等未处理
+异常会在重新抛出前把任务置为 failed。终态回调逐个隔离清理异常并继续关闭浏览器，且不会覆盖 Runner
+原始异常；该保证只覆盖当前进程仍能执行清理代码的情况。该能力只通过本地 HTTP 模拟登录站点与真实 Chromium 验收，不持久化 Cookie、Token
+或浏览器存储状态，也未对真实外部登录流程做出可用性声明。
 
 这些能力不是完整应用探索。跨任务登录态复用、加密登录态存储、SSO/扫码/MFA 专用适配、
 前端人工确认页、真实外部站点登录、访问控制绕过、截图、网络正文、业务动作、通用多页面导航

@@ -1,5 +1,6 @@
 """Adapters that let controlled exploration reuse Sprint 1 snapshot collection."""
 
+from ai_ui_explorer.exploration.task import ExplorationTask
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
@@ -31,6 +32,7 @@ class SessionSnapshotCollectorAdapter(SnapshotCollectorAdapter):
         self,
         *,
         session: PlaywrightBrowserSession,
+        task: ExplorationTask,
         limits: SnapshotLimits,
         collector: SnapshotCollector | None = None,
     ) -> None:
@@ -40,8 +42,30 @@ class SessionSnapshotCollectorAdapter(SnapshotCollectorAdapter):
                 "Session collector source does not match browser session."
             )
         self._session = session
+        self._task = task
         super().__init__(collector=bound_collector, limits=limits)
 
-    def is_bound_to(self, session: PlaywrightBrowserSession) -> bool:
-        """Check session identity without exposing Playwright automation objects."""
-        return self._session is session
+
+def _session_collector_matches_binding(
+    collector: object,
+    *,
+    session: PlaywrightBrowserSession,
+    task: ExplorationTask,
+) -> bool:
+    """Verify the exact controlled adapter and its private process-local identities."""
+    return (
+        type(collector) is SessionSnapshotCollectorAdapter
+        and object.__getattribute__(collector, "_session") is session
+        and object.__getattribute__(collector, "_task") is task
+    )
+
+
+def _session_collector_matches_task(
+    collector: object,
+    task: ExplorationTask,
+) -> bool:
+    """Verify task identity without trusting a caller-provided port capability."""
+    return (
+        type(collector) is SessionSnapshotCollectorAdapter
+        and object.__getattribute__(collector, "_task") is task
+    )

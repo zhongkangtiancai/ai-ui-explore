@@ -1,15 +1,23 @@
 """Bounded exploration runner tests with injected fake collectors."""
 
+from typing import cast
 from urllib.parse import urljoin, urlsplit
 
 import pytest
 
-from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
+from ai_ui_explorer.exploration.collector_adapter import (
+    SessionSnapshotCollectorAdapter,
+    SnapshotCollectorAdapter,
+)
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry, NavigationCandidate
 from ai_ui_explorer.exploration.runner import ExplorationRunner, SnapshotCollectorPort
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskState
-from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSource
+from ai_ui_explorer.snapshot.browser import (
+    PlaywrightBrowserSession,
+    PlaywrightBrowserSource,
+    RawPageObservation,
+)
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
 from tests.snapshot.factories import make_element, make_frame, make_snapshot
@@ -26,6 +34,35 @@ class FakeCollector(SnapshotCollectorPort):
         if url not in self.snapshots:
             raise RuntimeError("synthetic collector failure with token=secret")
         return self.snapshots[url]
+
+
+class _MaliciousTaskBindingCollector(SnapshotCollectorPort):
+    def __init__(self, delegate: SnapshotCollectorPort) -> None:
+        self._delegate = delegate
+
+    def collect(self, url: str) -> SnapshotDocument:
+        return self._delegate.collect(url)
+
+    def is_bound_to_task(self, _task: ExplorationTask) -> bool:
+        return True
+
+
+class _FailingObservationSource:
+    def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
+        raise RuntimeError("synthetic collector failure with token=secret")
+
+
+def _task_bound_collector(
+    task: ExplorationTask,
+    *,
+    source: object | None = None,
+) -> SessionSnapshotCollectorAdapter:
+    observation_source = source or FakeSource.with_text("Visible page text")
+    return SessionSnapshotCollectorAdapter(
+        session=cast(PlaywrightBrowserSession, observation_source),
+        task=task,
+        limits=SnapshotLimits(),
+    )
 
 
 def test_runner_collects_seed_and_readonly_candidate_until_queue_empty() -> None:
@@ -83,17 +120,7 @@ def test_runner_completes_bound_task_and_notifies_terminal_callback() -> None:
     runner = ExplorationRunner(
         policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
         budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
-        collector=FakeCollector(
-            {
-                root_url: make_snapshot(
-                    source={
-                        "requested_url": root_url,
-                        "final_url": root_url,
-                        "title": "Root",
-                    }
-                )
-            }
-        ),
+        collector=_task_bound_collector(task),
         task=task,
     )
 
@@ -112,7 +139,10 @@ def test_runner_marks_bound_task_partial_and_notifies_terminal_callback() -> Non
     runner = ExplorationRunner(
         policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
         budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
-        collector=FakeCollector({}),
+        collector=_task_bound_collector(
+            task,
+            source=_FailingObservationSource(),
+        ),
         task=task,
     )
 
@@ -129,6 +159,82 @@ def test_runner_marks_bound_task_partial_and_notifies_terminal_callback() -> Non
     assert task.state == ExplorationTaskState.PARTIAL
     assert task.audit_events[-1].reason_code == "collector_failure"
     assert observed_states == [ExplorationTaskState.PARTIAL]
+
+
+def test_runner_rejects_task_not_bound_to_collector() -> None:
+    collector_task = ExplorationTask.create(task_id="collector-task")
+    runner_task = ExplorationTask.create(task_id="runner-task")
+
+    with pytest.raises(
+        ValueError,
+        match=r"^Exploration collector is not bound to task\.$",
+    ):
+        ExplorationRunner(
+            policy=NavigationPolicy(
+                allowed_origins=["https://app.example.test"]
+            ),
+            budget=ExplorationBudget(
+                max_pages=1,
+                max_depth=0,
+                max_queue_size=1,
+            ),
+            collector=_task_bound_collector(collector_task),
+            task=runner_task,
+        )
+
+
+def test_runner_rejects_wrapper_that_self_reports_task_binding() -> None:
+    task = ExplorationTask.create(task_id="task-1")
+    wrapped = _MaliciousTaskBindingCollector(
+        _task_bound_collector(task)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"^Exploration collector is not bound to task\.$",
+    ):
+        ExplorationRunner(
+            policy=NavigationPolicy(
+                allowed_origins=["https://app.example.test"]
+            ),
+            budget=ExplorationBudget(
+                max_pages=1,
+                max_depth=0,
+                max_queue_size=1,
+            ),
+            collector=wrapped,
+            task=task,
+        )
+
+
+def test_runner_marks_bound_task_failed_when_candidate_extractor_raises() -> None:
+    root_url = "https://app.example.test/root"
+    task = ExplorationTask.create(task_id="task-1")
+    observed_states: list[ExplorationTaskState] = []
+    task.register_terminal_callback(lambda: observed_states.append(task.state))
+    task.start_collection()
+
+    def fail_candidate_extraction(
+        _snapshot: SnapshotDocument,
+    ) -> list[NavigationCandidate]:
+        raise RuntimeError("unsafe candidate failure token=secret")
+
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
+        collector=_task_bound_collector(task),
+        candidate_extractor=fail_candidate_extraction,
+        task=task,
+    )
+
+    with pytest.raises(RuntimeError, match="unsafe candidate failure"):
+        runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert task.state == ExplorationTaskState.FAILED
+    assert task.audit_events[-1].event_type == "task_failed"
+    assert task.audit_events[-1].reason_code == "runner_failure"
+    assert "secret" not in task.model_dump_json()
+    assert observed_states == [ExplorationTaskState.FAILED]
 
 
 def test_runner_uses_snapshot_href_candidates_by_default() -> None:

@@ -44,6 +44,40 @@ def test_partial_transition_records_reason_and_notifies_callback() -> None:
     assert observed_states == [ExplorationTaskState.PARTIAL]
 
 
+def test_failed_transition_records_reason_and_notifies_callback() -> None:
+    task = ExplorationTask.create(task_id="task-1")
+    observed_states: list[ExplorationTaskState] = []
+    task.register_terminal_callback(lambda: observed_states.append(task.state))
+    task.start_collection()
+
+    task.fail(reason_code="runner_failure")
+
+    assert task.state == ExplorationTaskState.FAILED
+    assert task.audit_events[-1].event_type == "task_failed"
+    assert task.audit_events[-1].reason_code == "runner_failure"
+    assert observed_states == [ExplorationTaskState.FAILED]
+
+
+def test_terminal_callbacks_are_isolated_and_all_run() -> None:
+    task = ExplorationTask.create(task_id="task-1")
+    callback_calls: list[str] = []
+
+    def fail_first_callback() -> None:
+        callback_calls.append("first")
+        raise RuntimeError("cleanup token=secret")
+
+    task.register_terminal_callback(fail_first_callback)
+    task.register_terminal_callback(lambda: callback_calls.append("second"))
+    task.start_collection()
+
+    task.fail(reason_code="runner_failure")
+
+    assert callback_calls == ["first", "second"]
+    assert task.audit_events[-1].event_type == "terminal_callback_failed"
+    assert task.audit_events[-1].reason_code == "cleanup_failure"
+    assert "secret" not in task.model_dump_json()
+
+
 def test_task_cannot_verify_without_human_confirmation() -> None:
     task = ExplorationTask.create(task_id="task-1")
     task.start_collection()

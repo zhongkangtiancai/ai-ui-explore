@@ -17,6 +17,7 @@ from ai_ui_explorer.exploration.collector_adapter import (
     SessionSnapshotCollectorAdapter,
 )
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
+from ai_ui_explorer.snapshot.models import SnapshotLimits
 
 
 class _FakeBrowser:
@@ -53,14 +54,6 @@ class _FakeBrowser:
         self.close_calls += 1
 
 
-class _FakeCollector:
-    def __init__(self, browser: _FakeBrowser) -> None:
-        self._browser = browser
-
-    def is_bound_to(self, browser: PlaywrightBrowserSession) -> bool:
-        return self._browser is browser
-
-
 def _plan() -> AuthenticationPlan:
     return AuthenticationPlan(
         authentication_url="https://sso.example.test/login",
@@ -84,35 +77,66 @@ def _session(
     HumanLoginSession,
     ExplorationTask,
     _FakeBrowser,
-    _FakeCollector,
+    SessionSnapshotCollectorAdapter,
 ]:
     task = ExplorationTask.create(task_id="task-1")
     fake_browser = browser or _FakeBrowser()
-    collector = _FakeCollector(fake_browser)
+    collector = SessionSnapshotCollectorAdapter(
+        session=cast(PlaywrightBrowserSession, fake_browser),
+        task=task,
+        limits=SnapshotLimits(),
+    )
     session = HumanLoginSession(
         task=task,
         plan=plan or _plan(),
         policy=_policy(),
         browser=cast(PlaywrightBrowserSession, fake_browser),
-        collector=cast(SessionSnapshotCollectorAdapter, collector),
+        collector=collector,
     )
     return session, task, fake_browser, collector
 
 
 def test_session_rejects_collector_bound_to_another_browser() -> None:
     browser = _FakeBrowser()
-    collector = _FakeCollector(_FakeBrowser())
+    task = ExplorationTask.create(task_id="task-1")
+    collector = SessionSnapshotCollectorAdapter(
+        session=cast(PlaywrightBrowserSession, _FakeBrowser()),
+        task=task,
+        limits=SnapshotLimits(),
+    )
 
     with pytest.raises(
         HumanLoginRuntimeError,
-        match=r"^Session collector is not bound to browser\.$",
+        match=r"^Session collector binding is invalid\.$",
     ):
         HumanLoginSession(
-            task=ExplorationTask.create(task_id="task-1"),
+            task=task,
             plan=_plan(),
             policy=_policy(),
             browser=cast(PlaywrightBrowserSession, browser),
-            collector=cast(SessionSnapshotCollectorAdapter, collector),
+            collector=collector,
+        )
+
+
+def test_session_rejects_collector_bound_to_another_task() -> None:
+    browser = _FakeBrowser()
+    task = ExplorationTask.create(task_id="task-1")
+    collector = SessionSnapshotCollectorAdapter(
+        session=cast(PlaywrightBrowserSession, browser),
+        task=ExplorationTask.create(task_id="other-task"),
+        limits=SnapshotLimits(),
+    )
+
+    with pytest.raises(
+        HumanLoginRuntimeError,
+        match=r"^Session collector binding is invalid\.$",
+    ):
+        HumanLoginSession(
+            task=task,
+            plan=_plan(),
+            policy=_policy(),
+            browser=cast(PlaywrightBrowserSession, browser),
+            collector=collector,
         )
 
 
@@ -123,7 +147,7 @@ def _started_session(
     HumanLoginSession,
     ExplorationTask,
     _FakeBrowser,
-    _FakeCollector,
+    SessionSnapshotCollectorAdapter,
 ]:
     session, task, fake_browser, collector = _session(browser=browser)
     session.start()

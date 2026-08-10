@@ -1,5 +1,6 @@
 """Real Chromium acceptance tests for an in-memory browser session."""
 
+from collections.abc import Callable
 from typing import cast
 
 import pytest
@@ -15,6 +16,7 @@ from ai_ui_explorer.exploration import (
     HumanLoginRuntimeError,
     HumanLoginSession,
     ModuleEntry,
+    NavigationCandidate,
 )
 from ai_ui_explorer.exploration.collector_adapter import (
     SessionSnapshotCollectorAdapter,
@@ -24,7 +26,7 @@ from ai_ui_explorer.snapshot.browser import (
     RawPageObservation,
 )
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
-from ai_ui_explorer.snapshot.models import SnapshotLimits
+from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
 from tests.snapshot.conftest import LoginSite
 
 
@@ -45,9 +47,13 @@ def _browser_session_is_closed(session: PlaywrightBrowserSession) -> bool:
 
 def _make_browser_runtime(
     login_site: LoginSite,
+    *,
+    first_terminal_callback: Callable[[], None] | None = None,
 ) -> tuple[HumanLoginSession, ExplorationTask, PlaywrightBrowserSession]:
     browser = PlaywrightBrowserSession.open(headless=False)
     task = ExplorationTask.create(task_id="fixture-human-login")
+    if first_terminal_callback is not None:
+        task.register_terminal_callback(first_terminal_callback)
     runtime = HumanLoginSession(
         task=task,
         plan=AuthenticationPlan(
@@ -59,6 +65,7 @@ def _make_browser_runtime(
         browser=browser,
         collector=SessionSnapshotCollectorAdapter(
             session=browser,
+            task=task,
             limits=SnapshotLimits(),
         ),
     )
@@ -112,6 +119,57 @@ def test_human_login_runtime_resumes_controlled_exploration(
         runtime.close()
 
 
+def test_human_login_runtime_closes_browser_when_runner_raises(
+    login_site: LoginSite,
+) -> None:
+    callback_calls: list[str] = []
+
+    def fail_first_terminal_callback() -> None:
+        callback_calls.append("failing_callback")
+        raise RuntimeError("fixture cleanup failure token=secret")
+
+    runtime, task, browser = _make_browser_runtime(
+        login_site,
+        first_terminal_callback=fail_first_terminal_callback,
+    )
+
+    def fail_candidate_extraction(
+        _snapshot: SnapshotDocument,
+    ) -> list[NavigationCandidate]:
+        raise RuntimeError("fixture candidate failure")
+
+    try:
+        runtime.start()
+        _simulate_human_login(runtime)
+        assert runtime.confirm_and_verify().authenticated is True
+
+        with pytest.raises(RuntimeError, match="fixture candidate failure"):
+            ExplorationRunner(
+                policy=login_site.policy,
+                budget=ExplorationBudget(
+                    max_pages=1,
+                    max_depth=0,
+                    max_queue_size=1,
+                ),
+                collector=runtime.collector_port(),
+                candidate_extractor=fail_candidate_extraction,
+                task=task,
+            ).run(
+                modules=[
+                    ModuleEntry(
+                        module_id="dashboard",
+                        url=login_site.dashboard_url,
+                    )
+                ]
+            )
+
+        assert task.state == ExplorationTaskState.FAILED
+        assert callback_calls == ["failing_callback"]
+        assert _browser_session_is_closed(browser) is True
+    finally:
+        runtime.close()
+
+
 def test_session_collector_observes_login_only_dashboard(login_site: LoginSite) -> None:
     session = PlaywrightBrowserSession.open(headless=True)
     try:
@@ -119,6 +177,7 @@ def test_session_collector_observes_login_only_dashboard(login_site: LoginSite) 
         _fixture_page(session).locator("#fixture-login").click()
         snapshot = SessionSnapshotCollectorAdapter(
             session=session,
+            task=ExplorationTask.create(task_id="fixture-collector"),
             limits=SnapshotLimits(),
         ).collect(login_site.dashboard_url)
     finally:
@@ -254,6 +313,7 @@ def test_session_snapshot_does_not_expose_fixture_authentication_marker(
         _fixture_page(session).locator("#fixture-login").click()
         snapshot = SessionSnapshotCollectorAdapter(
             session=session,
+            task=ExplorationTask.create(task_id="fixture-collector"),
             limits=SnapshotLimits(),
         ).collect(login_site.dashboard_url)
     finally:
@@ -309,6 +369,7 @@ def test_session_collector_adapter_uses_fixed_collection_error() -> None:
     source = _FailingObservationSource()
     adapter = SessionSnapshotCollectorAdapter(
         session=cast(PlaywrightBrowserSession, source),
+        task=ExplorationTask.create(task_id="fixture-collector"),
         limits=SnapshotLimits(),
     )
 
@@ -329,6 +390,22 @@ def test_session_collector_adapter_rejects_collector_bound_to_other_session() ->
     ):
         SessionSnapshotCollectorAdapter(
             session=session,
+            task=ExplorationTask.create(task_id="fixture-collector"),
             collector=SnapshotCollector(source=other_session),
             limits=SnapshotLimits(),
         )
+
+
+def test_session_collector_adapter_keeps_binding_checks_private() -> None:
+    session = cast(PlaywrightBrowserSession, _FailingObservationSource())
+    task = ExplorationTask.create(task_id="task-1")
+
+    adapter = SessionSnapshotCollectorAdapter(
+        session=session,
+        task=task,
+        limits=SnapshotLimits(),
+    )
+
+    public_names = {name for name in dir(adapter) if not name.startswith("_")}
+    assert "is_bound_to" not in public_names
+    assert "is_bound_to_task" not in public_names

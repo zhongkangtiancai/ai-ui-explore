@@ -6,6 +6,7 @@ from ai_ui_explorer.exploration.authentication import (
 )
 from ai_ui_explorer.exploration.collector_adapter import (
     SessionSnapshotCollectorAdapter,
+    _session_collector_matches_binding,
 )
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.runner import SnapshotCollectorPort
@@ -31,9 +32,13 @@ class HumanLoginSession:
         browser: PlaywrightBrowserSession,
         collector: SessionSnapshotCollectorAdapter,
     ) -> None:
-        if not collector.is_bound_to(browser):
+        if not _session_collector_matches_binding(
+            collector,
+            session=browser,
+            task=task,
+        ):
             raise HumanLoginRuntimeError(
-                "Session collector is not bound to browser."
+                "Session collector binding is invalid."
             )
         self._task = task
         self._plan = plan
