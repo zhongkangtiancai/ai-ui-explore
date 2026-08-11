@@ -456,11 +456,13 @@ class ExplorationTaskService:
         )
         if not isinstance(visit_count, int) or visit_count < 0:
             visit_count = 0
+        element_count = _count_visit_metric(visits, "element_count")
+        link_count = _count_visit_metric(visits, "link_count")
         managed.set_result(
             TaskResultSummary(
                 page_count=visit_count,
-                element_count=0,
-                link_count=0,
+                element_count=element_count,
+                link_count=link_count,
                 source_summary="redacted source",
             )
         )
@@ -554,6 +556,18 @@ def _empty_result() -> TaskResultSummary:
         link_count=0,
         source_summary="redacted source",
     )
+
+
+def _count_visit_metric(visits: object, attribute: str) -> int:
+    """Add bounded scalar visit metadata without retaining snapshot content."""
+    if not isinstance(visits, Sequence):
+        return 0
+    total = 0
+    for visit in visits:
+        value = getattr(visit, attribute, 0)
+        if isinstance(value, int) and value >= 0:
+            total += value
+    return total
 
 
 def _empty_collector(_context: _TaskRuntimeContext) -> object:

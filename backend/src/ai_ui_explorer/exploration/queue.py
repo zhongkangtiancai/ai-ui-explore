@@ -50,8 +50,12 @@ class EnqueueDecision(DeepFrozenModel):
 
 
 class SnapshotVisitResult(DeepFrozenModel):
+    """One internal visit plus bounded counts derived from its snapshot."""
+
     target: ExplorationTarget
     state_fingerprint: StateFingerprint
+    element_count: int = Field(default=0, ge=0)
+    link_count: int = Field(default=0, ge=0)
 
     @property
     def seen_before(self) -> bool:
@@ -134,6 +138,12 @@ class BoundedExplorationQueue:
         return SnapshotVisitResult(
             target=target,
             state_fingerprint=self._state_deduplicator.observe(snapshot),
+            element_count=sum(len(frame.elements) for frame in snapshot.frames),
+            link_count=sum(
+                element.href is not None
+                for frame in snapshot.frames
+                for element in frame.elements
+            ),
         )
 
     def _enqueue(

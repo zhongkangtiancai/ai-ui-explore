@@ -34,6 +34,18 @@ class _FakeRunResult:
     visit_count: int
 
 
+@dataclass(frozen=True)
+class _SafeVisitCounts:
+    element_count: int
+    link_count: int
+
+
+@dataclass(frozen=True)
+class _CountingRunResult:
+    status: str
+    visits: tuple[_SafeVisitCounts, ...]
+
+
 class _FakeLoginRuntime:
     def __init__(self, task: ExplorationTask, *, authenticated: bool = True) -> None:
         self._task = task
@@ -244,6 +256,41 @@ def test_runner_exception_ends_task_with_fixed_failure_reason() -> None:
     assert events is not None
     assert events[-1].reason_code == "runner_failure"
     assert "should-not-leak" not in service.get(task.task_id).model_dump_json()  # type: ignore[union-attr]
+
+
+def test_service_summarizes_only_safe_counts_from_runner_visits() -> None:
+    class CountingRunner:
+        def run(self, *, modules: list[ModuleEntry]) -> _CountingRunResult:
+            assert modules == [
+                ModuleEntry(
+                    module_id="dashboard",
+                    url="https://app.example.test/dashboard",
+                )
+            ]
+            return _CountingRunResult(
+                status="completed",
+                visits=(
+                    _SafeVisitCounts(element_count=3, link_count=1),
+                    _SafeVisitCounts(element_count=4, link_count=2),
+                ),
+            )
+
+    fakes = _Fakes()
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=lambda *_args: CountingRunner(),  # type: ignore[arg-type]
+    )
+
+    task = service.create(_command(with_login=False))
+
+    _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
+    result = service.result(task.task_id)
+    assert result is not None
+    assert result.page_count == 2
+    assert result.element_count == 7
+    assert result.link_count == 3
+    assert "dashboard" not in result.model_dump_json()
 
 
 def test_login_runtime_factory_failure_ends_task_without_leaking_detail() -> None:

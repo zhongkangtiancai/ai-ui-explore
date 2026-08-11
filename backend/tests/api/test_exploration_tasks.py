@@ -239,8 +239,8 @@ def test_local_login_task_completes_after_confirmation(login_site: LoginSite) ->
         assert result.status_code == 200
         assert result.json() == {
             "page_count": 1,
-            "element_count": 0,
-            "link_count": 0,
+            "element_count": 2,
+            "link_count": 1,
             "source_summary": "redacted source",
         }
         assert runtime_closed.wait(timeout=5)

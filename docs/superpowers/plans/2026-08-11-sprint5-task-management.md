@@ -258,7 +258,7 @@ Run: `pnpm test && pnpm lint && pnpm typecheck && pnpm build`
 
 Expected: 每项退出码 0；确认 pytest Python 子进程真实退出。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add backend/tests docs
