@@ -548,3 +548,81 @@ def test_service_resumes_real_bound_login_runtime_after_confirmation(
     _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
     assert service.result(task.task_id).page_count == 1  # type: ignore[union-attr]
     assert runtime_closed.wait(timeout=2)
+
+
+@pytest.mark.parametrize("failure_source", ["collector", "runner_factory"])
+def test_post_authentication_setup_failure_ends_task_and_closes_runtime(
+    failure_source: str,
+) -> None:
+    fakes = _Fakes()
+
+    class CollectorFailureRuntime(_FakeLoginRuntime):
+        def collector_port(self) -> object:
+            raise RuntimeError("token=collector-setup-secret")
+
+    def runtime_factory(
+        context: object,
+        _plan: AuthenticationPlan,
+        _policy: object,
+    ) -> _FakeLoginRuntime:
+        runtime: _FakeLoginRuntime
+        if failure_source == "collector":
+            runtime = CollectorFailureRuntime(context)
+        else:
+            runtime = _FakeLoginRuntime(context)
+        fakes.runtime = runtime
+        return runtime
+
+    def runner_factory(*_args: object) -> _FakeRunner:
+        raise RuntimeError("token=runner-factory-secret")
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=runtime_factory,  # type: ignore[arg-type]
+        runner_factory=runner_factory,  # type: ignore[arg-type]
+    )
+    task = service.create(_command())
+
+    with pytest.raises(TaskServiceError, match=r"^Task cannot confirm login\.$"):
+        service.confirm_login(task.task_id)
+
+    _wait_for(lambda: service.get(task.task_id).state == "failed")  # type: ignore[union-attr]
+    assert fakes.runtime is not None
+    _wait_for(lambda: fakes.runtime.closed)
+    summary = service.get(task.task_id)
+    assert summary is not None
+    assert summary.events[-1].reason_code == "runner_failure"
+    assert "secret" not in summary.model_dump_json()
+
+
+def test_login_start_failure_after_pause_cancels_and_closes_runtime() -> None:
+    fakes = _Fakes()
+
+    class PausingFailureRuntime(_FakeLoginRuntime):
+        def start(self) -> None:
+            super().start()
+            raise RuntimeError("token=startup-secret")
+
+    def runtime_factory(
+        context: object,
+        _plan: AuthenticationPlan,
+        _policy: object,
+    ) -> PausingFailureRuntime:
+        runtime = PausingFailureRuntime(context)
+        fakes.runtime = runtime
+        return runtime
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=runtime_factory,  # type: ignore[arg-type]
+        runner_factory=fakes.runner_factory,
+    )
+
+    task = service.create(_command())
+
+    assert task.state == "cancelled"
+    assert fakes.runtime is not None
+    assert fakes.runtime.closed is True
+    assert "startup-secret" not in task.model_dump_json()
+    with pytest.raises(TaskServiceError, match=r"^Task cannot confirm login\.$"):
+        service.confirm_login(task.task_id)

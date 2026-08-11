@@ -386,7 +386,10 @@ class ExplorationTaskService:
                 self._run_runner(managed, execution, runner)
                 return
         except Exception:
-            self._reject_unverified_confirmation(managed)
+            if managed.summary().state == "collecting":
+                self._fail_collecting_task(managed)
+            else:
+                self._reject_unverified_confirmation(managed)
             failed = True
         self._resolve_login_confirmation(execution, failed=failed)
 
@@ -476,10 +479,14 @@ class ExplorationTaskService:
         self._sync_phase(managed)
 
     def _fail_login_start(self, managed: ManagedTask) -> None:
-        if managed.summary().state == "created":
+        state = managed.summary().state
+        if state == "created":
             managed.start_collection()
-        if managed.summary().state == "collecting":
+            state = managed.summary().state
+        if state == "collecting":
             managed.fail(reason_code="login_runtime_error")
+        elif state not in _TERMINAL_STATES:
+            managed.cancel(reason_code="login_runtime_error")
         self._sync_phase(managed)
 
     def _reject_unverified_confirmation(self, managed: ManagedTask) -> None:
