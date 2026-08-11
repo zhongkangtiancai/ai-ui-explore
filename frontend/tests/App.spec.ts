@@ -1,7 +1,36 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('../src/api/explorationTasks', () => ({
+  cancelExplorationTask: vi.fn(),
+  confirmExplorationTaskLogin: vi.fn(),
+  createExplorationTask: vi.fn(),
+  fetchExplorationTask: vi.fn(),
+}))
+
 import App from '../src/App.vue'
+import {
+  confirmExplorationTaskLogin,
+  createExplorationTask,
+  fetchExplorationTask,
+  type TaskSummary,
+} from '../src/api/explorationTasks'
+
+const createdTask: TaskSummary = {
+  task_id: 'task-1',
+  state: 'paused_for_human',
+  phase: 'awaiting_human',
+  created_at: '2026-08-11T00:00:00Z',
+  updated_at: '2026-08-11T00:00:00Z',
+  redaction_count: 0,
+  events: [],
+  result: {
+    page_count: 0,
+    element_count: 0,
+    link_count: 0,
+    source_summary: 'redacted source',
+  },
+}
 
 describe('App', () => {
   afterEach(() => {
@@ -50,5 +79,100 @@ describe('App', () => {
     expect(wrapper.text()).toContain('连接异常')
     expect(wrapper.text()).toContain('请确认后端服务已经启动')
     expect(wrapper.text()).not.toContain('secret internal error')
+  })
+
+  it('shows a safe task error instead of API failure details', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'ok',
+          service: 'ai-ui-explorer-backend',
+          version: '0.1.0',
+          environment: 'development',
+        }),
+      }),
+    )
+    vi.mocked(createExplorationTask).mockRejectedValue(new Error('token=secret-value'))
+
+    const wrapper = mount(App)
+    await flushPromises()
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('任务操作未完成，请检查安全配置后重试。')
+    expect(wrapper.text()).not.toContain('secret-value')
+  })
+
+  it('confirms a paused task and starts polling it', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'ok',
+          service: 'ai-ui-explorer-backend',
+          version: '0.1.0',
+          environment: 'development',
+        }),
+      }),
+    )
+    vi.mocked(createExplorationTask).mockResolvedValue(createdTask)
+    vi.mocked(confirmExplorationTaskLogin).mockResolvedValue({
+      ...createdTask,
+      state: 'collecting',
+      phase: 'collecting',
+    })
+    vi.mocked(fetchExplorationTask).mockResolvedValue({
+      ...createdTask,
+      state: 'collecting',
+      phase: 'collecting',
+    })
+
+    const wrapper = mount(App)
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    await wrapper.get('[data-test="confirm-login"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(confirmExplorationTaskLogin).toHaveBeenCalledWith('task-1')
+    expect(fetchExplorationTask).toHaveBeenCalledWith('task-1')
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('stops polling a terminal task', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'ok',
+          service: 'ai-ui-explorer-backend',
+          version: '0.1.0',
+          environment: 'development',
+        }),
+      }),
+    )
+    vi.mocked(createExplorationTask).mockResolvedValue({
+      ...createdTask,
+      state: 'completed',
+      phase: 'completed',
+    })
+
+    const wrapper = mount(App)
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(4000)
+
+    expect(fetchExplorationTask).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 })

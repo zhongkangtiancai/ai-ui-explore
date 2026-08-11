@@ -1,12 +1,25 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { fetchHealth, type HealthResponse } from './api/health'
+import {
+  cancelExplorationTask,
+  confirmExplorationTaskLogin,
+  createExplorationTask,
+  fetchExplorationTask,
+  type CreateExplorationTaskRequest,
+  type TaskSummary,
+} from './api/explorationTasks'
+import ExplorationTaskDetail from './components/ExplorationTaskDetail.vue'
+import ExplorationTaskForm from './components/ExplorationTaskForm.vue'
 
 type ConnectionState = 'loading' | 'success' | 'error'
 
 const connectionState = ref<ConnectionState>('loading')
 const health = ref<HealthResponse | null>(null)
+const task = ref<TaskSummary | null>(null)
+const taskError = ref(false)
+let taskPollTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(async () => {
   try {
@@ -16,6 +29,82 @@ onMounted(async () => {
     connectionState.value = 'error'
   }
 })
+
+onBeforeUnmount(stopTaskPolling)
+
+function isTerminalTask(taskSummary: TaskSummary): boolean {
+  return ['completed', 'partial', 'failed', 'cancelled'].includes(taskSummary.state)
+}
+
+function applyTask(taskSummary: TaskSummary): void {
+  task.value = taskSummary
+  if (isTerminalTask(taskSummary)) {
+    stopTaskPolling()
+  } else {
+    startTaskPolling()
+  }
+}
+
+function startTaskPolling(): void {
+  stopTaskPolling()
+  taskPollTimer = setInterval(() => {
+    void refreshTask()
+  }, 2000)
+}
+
+function stopTaskPolling(): void {
+  if (taskPollTimer !== null) {
+    clearInterval(taskPollTimer)
+    taskPollTimer = null
+  }
+}
+
+async function refreshTask(): Promise<void> {
+  if (task.value === null || isTerminalTask(task.value)) {
+    stopTaskPolling()
+    return
+  }
+
+  try {
+    applyTask(await fetchExplorationTask(task.value.task_id))
+  } catch {
+    taskError.value = true
+    stopTaskPolling()
+  }
+}
+
+async function handleCreate(payload: CreateExplorationTaskRequest): Promise<void> {
+  taskError.value = false
+  try {
+    applyTask(await createExplorationTask(payload))
+  } catch {
+    taskError.value = true
+  }
+}
+
+async function handleConfirmLogin(): Promise<void> {
+  if (task.value === null) {
+    return
+  }
+  taskError.value = false
+  try {
+    applyTask(await confirmExplorationTaskLogin(task.value.task_id))
+  } catch {
+    taskError.value = true
+  }
+}
+
+async function handleCancel(): Promise<void> {
+  if (task.value === null) {
+    return
+  }
+  taskError.value = false
+  try {
+    applyTask(await cancelExplorationTask(task.value.task_id))
+  } catch {
+    taskError.value = true
+  }
+}
 </script>
 
 <template>
@@ -59,11 +148,19 @@ onMounted(async () => {
 
     <section class="boundary">
       <h2>当前范围</h2>
-      <p>
-        当前版本只验证前后端工程闭环。Playwright、知识模型、LLM 与权限探索将在后续 Sprint
-        中逐步实现。
-      </p>
+      <p>当前版本提供受控只读探索的本地任务管理。服务重启后，任务、结果和登录态均不可恢复。</p>
     </section>
+
+    <ExplorationTaskForm @submit="handleCreate" />
+
+    <p v-if="taskError" class="task-error" role="alert">任务操作未完成，请检查安全配置后重试。</p>
+
+    <ExplorationTaskDetail
+      v-if="task"
+      :task="task"
+      @confirm-login="handleConfirmLogin"
+      @cancel="handleCancel"
+    />
   </main>
 </template>
 
@@ -195,6 +292,11 @@ h1 {
 .boundary {
   margin-top: 32px;
   padding: 0 4px;
+}
+
+.task-error {
+  margin: 20px 4px 0;
+  color: #ffb4b4;
 }
 
 @media (max-width: 600px) {
