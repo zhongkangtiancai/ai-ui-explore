@@ -253,6 +253,11 @@ class ManagedTask:
                 and bool(self._task.checkpoint_id.strip())
             )
 
+    def _with_task[T](self, callback: Callable[[ExplorationTask], T]) -> T:
+        """Run task-management internals against the same hidden task identity."""
+        with self._lock:
+            return callback(self._task)
+
     def summary(self) -> TaskSummary:
         """Return a locked, serializable view that excludes runtime handles."""
         with self._lock:

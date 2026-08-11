@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
-from threading import RLock, Thread
-from typing import Protocol
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from threading import Event, RLock, Thread
+from typing import Protocol, cast
 
 from pydantic import Field
 
@@ -13,11 +13,19 @@ from ai_ui_explorer.exploration.authentication import (
     AuthenticationPlan,
     AuthenticationVerification,
 )
+from ai_ui_explorer.exploration.collector_adapter import SessionSnapshotCollectorAdapter
+from ai_ui_explorer.exploration.login_runtime import HumanLoginSession
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
-from ai_ui_explorer.exploration.runner import ExplorationCancellationToken
+from ai_ui_explorer.exploration.runner import (
+    ExplorationCancellationToken,
+    ExplorationRunner,
+    SnapshotCollectorPort,
+)
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskError
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
+from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
+from ai_ui_explorer.snapshot.models import SnapshotLimits
 from ai_ui_explorer.task_management.models import (
     ManagedTask,
     TaskEventView,
@@ -51,19 +59,19 @@ class _TaskRunner(Protocol):
 
 
 RuntimeFactory = Callable[
-    [ManagedTask, AuthenticationPlan, NavigationPolicy], _LoginRuntime
+    ["_TaskRuntimeContext", AuthenticationPlan, NavigationPolicy], _LoginRuntime
 ]
 RunnerFactory = Callable[
     [
+        "_TaskRuntimeContext",
         NavigationPolicy,
         ExplorationBudget,
         object,
-        ManagedTask,
         ExplorationCancellationToken,
     ],
     _TaskRunner,
 ]
-CollectorFactory = Callable[[ManagedTask], object]
+CollectorFactory = Callable[["_TaskRuntimeContext"], object]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -82,7 +90,95 @@ class _TaskExecution:
     command: CreateExplorationTaskCommand
     policy: NavigationPolicy
     cancellation_token: ExplorationCancellationToken
+    context: _TaskRuntimeContext
     runtime: _LoginRuntime | None = None
+    startup_ready: Event = field(default_factory=Event)
+    confirmation_requested: Event = field(default_factory=Event)
+    confirmation_resolved: Event = field(default_factory=Event)
+    runtime_closed: Event = field(default_factory=Event)
+    confirmation_failed: bool = False
+    confirmation_in_flight: bool = False
+
+
+class _TaskRuntimeContext:
+    """Private, controlled bridge to one hidden ExplorationTask identity."""
+
+    def __init__(self, managed: ManagedTask) -> None:
+        self._managed = managed
+
+    def start_collection(self) -> None:
+        self._managed.start_collection()
+
+    def pause_for_human(self, *, reason_code: str) -> None:
+        self._managed.pause_for_human(reason_code=reason_code)
+
+    def confirm_human_ready(self) -> None:
+        self._managed.confirm_human_ready()
+
+    def record_authentication_result(
+        self,
+        *,
+        authenticated: bool,
+        checkpoint_id: str | None,
+    ) -> None:
+        self._managed.record_authentication_result(
+            authenticated=authenticated,
+            checkpoint_id=checkpoint_id,
+        )
+
+    def complete(self) -> None:
+        self._managed.complete()
+
+    def create_session_collector(
+        self,
+        *,
+        session: PlaywrightBrowserSession,
+        limits: SnapshotLimits,
+    ) -> SessionSnapshotCollectorAdapter:
+        return self._managed._with_task(
+            lambda task: SessionSnapshotCollectorAdapter(
+                session=session,
+                task=task,
+                limits=limits,
+            )
+        )
+
+    def create_human_login_session(
+        self,
+        *,
+        plan: AuthenticationPlan,
+        policy: NavigationPolicy,
+        browser: PlaywrightBrowserSession,
+        collector: SessionSnapshotCollectorAdapter,
+    ) -> HumanLoginSession:
+        return self._managed._with_task(
+            lambda task: HumanLoginSession(
+                task=task,
+                plan=plan,
+                policy=policy,
+                browser=browser,
+                collector=collector,
+                register_terminal_cleanup=False,
+            )
+        )
+
+    def create_runner(
+        self,
+        *,
+        policy: NavigationPolicy,
+        budget: ExplorationBudget,
+        collector: object,
+        cancellation_token: ExplorationCancellationToken,
+    ) -> ExplorationRunner:
+        return self._managed._with_task(
+            lambda task: ExplorationRunner(
+                policy=policy,
+                budget=budget,
+                collector=cast(SnapshotCollectorPort, collector),
+                task=task,
+                cancellation_token=cancellation_token,
+            )
+        )
 
 
 class ExplorationTaskService:
@@ -120,10 +216,12 @@ class ExplorationTaskService:
                 redaction_count=0,
             )
         )
+        context = _TaskRuntimeContext(managed)
         execution = _TaskExecution(
             command=command,
             policy=policy,
             cancellation_token=ExplorationCancellationToken(),
+            context=context,
         )
         with self._lock:
             self._executions[task.task_id] = execution
@@ -136,12 +234,13 @@ class ExplorationTaskService:
 
         if command.authentication_plan is not None:
             self._start_login_task(managed, execution)
+            execution.startup_ready.wait(timeout=5)
             return managed.summary()
 
         try:
             managed.start_collection()
             managed.set_phase("collecting")
-            self._start_runner(managed, execution, self._collector_factory(managed))
+            self._start_runner(managed, execution, self._collector_factory(context))
         except Exception:
             self._fail_collecting_task(managed)
         return managed.summary()
@@ -157,30 +256,24 @@ class ExplorationTaskService:
         return list(summary.events) if summary is not None else None
 
     def confirm_login(self, task_id: str) -> TaskSummary:
-        """Verify an explicitly completed human login before starting the runner."""
+        """Signal the owning login thread to verify explicit human completion."""
         managed = self._require_managed(task_id)
         if managed.summary().state != "paused_for_human":
             raise TaskServiceError("Task cannot confirm login.")
         execution = self._require_execution(task_id)
-        runtime = execution.runtime
-        if runtime is None:
+        with self._lock:
+            if execution.runtime is None or execution.confirmation_in_flight:
+                raise TaskServiceError("Task cannot confirm login.")
+            execution.confirmation_failed = False
+            execution.confirmation_in_flight = True
+            execution.confirmation_resolved.clear()
+            execution.confirmation_requested.set()
+        if not execution.confirmation_resolved.wait(timeout=5):
             raise TaskServiceError("Task cannot confirm login.")
-        try:
-            verification = runtime.confirm_and_verify()
-        except Exception:
-            self._sync_phase(managed)
-            raise TaskServiceError("Task cannot confirm login.") from None
-        if not verification.authenticated:
-            self._sync_phase(managed)
-            return managed.summary()
-        if not managed.has_verified_authentication():
-            self._reject_unverified_confirmation(managed)
+        with self._lock:
+            confirmation_failed = execution.confirmation_failed
+        if confirmation_failed:
             raise TaskServiceError("Task cannot confirm login.")
-        try:
-            managed.set_phase("collecting")
-            self._start_runner(managed, execution, runtime.collector_port())
-        except Exception:
-            self._fail_collecting_task(managed)
         return managed.summary()
 
     def cancel(self, task_id: str) -> TaskSummary:
@@ -189,12 +282,15 @@ class ExplorationTaskService:
         execution = self._execution_for(task_id)
         if execution is not None:
             execution.cancellation_token.cancel()
+            execution.confirmation_requested.set()
         if managed.summary().state not in _TERMINAL_STATES:
             try:
                 managed.cancel(reason_code="user_cancelled")
             except ExplorationTaskError:
                 raise TaskServiceError("Task cannot be cancelled.") from None
             managed.set_phase("cancelled")
+        if execution is not None and execution.runtime is not None:
+            execution.runtime_closed.wait(timeout=5)
         return managed.summary()
 
     def result(self, task_id: str) -> TaskResultSummary | None:
@@ -207,20 +303,103 @@ class ExplorationTaskService:
         managed: ManagedTask,
         execution: _TaskExecution,
     ) -> None:
-        assert execution.command.authentication_plan is not None
+        thread = Thread(
+            target=self._run_login_task,
+            args=(managed, execution),
+            daemon=True,
+            name=f"ai-ui-explorer-login-{managed.task_id}",
+        )
+        managed.attach_thread(thread)
+        thread.start()
+
+    def _run_login_task(
+        self,
+        managed: ManagedTask,
+        execution: _TaskExecution,
+    ) -> None:
+        runtime: _LoginRuntime | None = None
         try:
+            assert execution.command.authentication_plan is not None
             runtime = self._runtime_factory(
-                managed,
+                execution.context,
                 execution.command.authentication_plan,
                 execution.policy,
             )
             execution.runtime = runtime
             managed.attach_runtime(runtime)
-            managed.register_terminal_callback(runtime.close)
             runtime.start()
-            managed.set_phase("awaiting_human")
+            self._sync_phase(managed)
         except Exception:
             self._fail_login_start(managed)
+            if runtime is not None:
+                try:
+                    runtime.close()
+                except Exception:
+                    pass
+            execution.runtime_closed.set()
+            return
+        finally:
+            execution.startup_ready.set()
+
+        try:
+            while (
+                not execution.cancellation_token.is_cancelled
+                and managed.summary().state == "paused_for_human"
+            ):
+                execution.confirmation_requested.wait()
+                execution.confirmation_requested.clear()
+                if execution.cancellation_token.is_cancelled:
+                    break
+                self._verify_login_in_owner_thread(managed, execution, runtime)
+        finally:
+            if runtime is not None and managed.summary().state in _TERMINAL_STATES:
+                try:
+                    runtime.close()
+                except Exception:
+                    pass
+            execution.runtime_closed.set()
+
+    def _verify_login_in_owner_thread(
+        self,
+        managed: ManagedTask,
+        execution: _TaskExecution,
+        runtime: _LoginRuntime,
+    ) -> None:
+        failed = False
+        try:
+            verification = runtime.confirm_and_verify()
+            if not verification.authenticated:
+                self._sync_phase(managed)
+            elif not managed.has_verified_authentication():
+                self._reject_unverified_confirmation(managed)
+                failed = True
+            else:
+                managed.set_phase("collecting")
+                runner = self._runner_factory(
+                    execution.context,
+                    execution.policy,
+                    execution.command.budget,
+                    runtime.collector_port(),
+                    execution.cancellation_token,
+                )
+                self._resolve_login_confirmation(execution, failed=False)
+                self._run_runner(managed, execution, runner)
+                return
+        except Exception:
+            self._reject_unverified_confirmation(managed)
+            failed = True
+        self._resolve_login_confirmation(execution, failed=failed)
+
+    def _resolve_login_confirmation(
+        self,
+        execution: _TaskExecution,
+        *,
+        failed: bool,
+    ) -> None:
+        with self._lock:
+            execution.confirmation_failed = failed
+            execution.confirmation_in_flight = False
+            execution.confirmation_resolved.set()
 
     def _start_runner(
         self,
@@ -229,10 +408,10 @@ class ExplorationTaskService:
         collector: object,
     ) -> None:
         runner = self._runner_factory(
+            execution.context,
             execution.policy,
             execution.command.budget,
             collector,
-            managed,
             execution.cancellation_token,
         )
         thread = Thread(
@@ -263,7 +442,7 @@ class ExplorationTaskService:
 
     def _record_run_result(self, managed: ManagedTask, result: object) -> None:
         visits = getattr(result, "visits", None)
-        visit_count = len(visits) if isinstance(visits, list) else getattr(
+        visit_count = len(visits) if isinstance(visits, Sequence) else getattr(
             result,
             "visit_count",
             0,
@@ -366,6 +545,6 @@ def _empty_result() -> TaskResultSummary:
     )
 
 
-def _empty_collector(_task: ManagedTask) -> object:
+def _empty_collector(_context: _TaskRuntimeContext) -> object:
     """Provide no browser state until a production collector is wired by the API."""
     return object()

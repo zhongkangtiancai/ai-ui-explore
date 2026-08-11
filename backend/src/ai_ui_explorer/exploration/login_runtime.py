@@ -31,6 +31,7 @@ class HumanLoginSession:
         policy: NavigationPolicy,
         browser: PlaywrightBrowserSession,
         collector: SessionSnapshotCollectorAdapter,
+        register_terminal_cleanup: bool = True,
     ) -> None:
         if not _session_collector_matches_binding(
             collector,
@@ -47,7 +48,8 @@ class HumanLoginSession:
         self._collector = collector
         self._verification: AuthenticationVerification | None = None
         self._closed = False
-        self._task.register_terminal_callback(self.close)
+        if register_terminal_cleanup:
+            self._task.register_terminal_callback(self.close)
 
     def start(self) -> None:
         """Validate the plan, open its handoff URL, and pause for the human."""

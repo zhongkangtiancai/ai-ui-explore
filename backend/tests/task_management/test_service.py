@@ -16,6 +16,8 @@ from ai_ui_explorer.exploration.authentication import (
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
 from ai_ui_explorer.exploration.runner import ExplorationCancellationToken
 from ai_ui_explorer.exploration.task import ExplorationTask
+from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
+from ai_ui_explorer.snapshot.models import SnapshotLimits
 from ai_ui_explorer.task_management.models import ManagedTask
 from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
 from ai_ui_explorer.task_management.service import (
@@ -23,6 +25,7 @@ from ai_ui_explorer.task_management.service import (
     ExplorationTaskService,
     TaskServiceError,
 )
+from tests.snapshot.conftest import LoginSite
 
 
 @dataclass(frozen=True)
@@ -119,7 +122,7 @@ class _Fakes:
 
     def runtime_factory(
         self,
-        task: ManagedTask,
+        task: object,
         _plan: AuthenticationPlan,
         _policy: object,
     ) -> _FakeLoginRuntime:
@@ -128,10 +131,10 @@ class _Fakes:
 
     def runner_factory(
         self,
+        task: object,
         _policy: object,
         _budget: ExplorationBudget,
         _collector: object,
-        task: ManagedTask,
         _cancellation_token: object,
     ) -> _FakeRunner:
         self.runner = _FakeRunner(
@@ -284,12 +287,12 @@ def test_factories_receive_managed_capabilities_not_raw_tasks() -> None:
             self._managed = managed
 
         def start(self) -> None:
-            assert isinstance(self._managed, ManagedTask)
+            assert not isinstance(self._managed, ExplorationTask)
             self._managed.start_collection()
             self._managed.pause_for_human(reason_code="authentication_required")
 
         def confirm_and_verify(self) -> AuthenticationVerification:
-            assert isinstance(self._managed, ManagedTask)
+            assert not isinstance(self._managed, ExplorationTask)
             self._managed.confirm_human_ready()
             self._managed.record_authentication_result(
                 authenticated=True,
@@ -313,7 +316,7 @@ def test_factories_receive_managed_capabilities_not_raw_tasks() -> None:
 
         def run(self, *, modules: list[ModuleEntry]) -> _FakeRunResult:
             assert modules[0].module_id == "dashboard"
-            assert isinstance(self._managed, ManagedTask)
+            assert not isinstance(self._managed, ExplorationTask)
             self._managed.complete()
             return _FakeRunResult(status="completed", visit_count=1)
 
@@ -323,7 +326,7 @@ def test_factories_receive_managed_capabilities_not_raw_tasks() -> None:
 
     def runner_factory(*args: object) -> RecordingRunner:
         received.append(args)
-        return RecordingRunner(args[-2])
+        return RecordingRunner(args[0])
 
     service = ExplorationTaskService(
         registry=ExplorationTaskRegistry(),
@@ -409,10 +412,10 @@ def test_worker_result_processing_failure_ends_task_and_releases_runtime() -> No
     fakes = _Fakes()
 
     def runner_factory(
+        task: object,
         _policy: object,
         _budget: ExplorationBudget,
         _collector: object,
-        task: ManagedTask,
         _cancellation_token: object,
     ) -> ExplodingRunner:
         return ExplodingRunner(task)
@@ -466,3 +469,82 @@ def test_cancel_signals_running_runner_before_releasing_runtime() -> None:
     assert started.wait(timeout=2)
     assert service.cancel(task.task_id).state == "cancelled"
     assert observed_cancellation.wait(timeout=2)
+
+
+def test_service_resumes_real_bound_login_runtime_after_confirmation(
+    login_site: LoginSite,
+) -> None:
+    runtime_closed = Event()
+
+    class SimulatedHumanRuntime:
+        def __init__(self, delegate: object) -> None:
+            self._delegate = delegate
+
+        def start(self) -> None:
+            self._delegate.start()  # type: ignore[attr-defined]
+            browser = object.__getattribute__(self._delegate, "_browser")
+            page = object.__getattribute__(browser, "_page")
+            page.locator("#fixture-login").click()
+
+        def confirm_and_verify(self) -> AuthenticationVerification:
+            return self._delegate.confirm_and_verify()  # type: ignore[attr-defined]
+
+        def collector_port(self) -> object:
+            return self._delegate.collector_port()  # type: ignore[attr-defined]
+
+        def close(self) -> None:
+            self._delegate.close()  # type: ignore[attr-defined]
+            runtime_closed.set()
+
+    def runtime_factory(
+        context: object,
+        plan: AuthenticationPlan,
+        policy: object,
+    ) -> object:
+        browser = PlaywrightBrowserSession.open(headless=False)
+        collector = context.create_session_collector(  # type: ignore[attr-defined]
+            session=browser,
+            limits=SnapshotLimits(),
+        )
+        runtime = context.create_human_login_session(  # type: ignore[attr-defined]
+            plan=plan,
+            policy=policy,
+            browser=browser,
+            collector=collector,
+        )
+        return SimulatedHumanRuntime(runtime)
+
+    def runner_factory(*args: object) -> object:
+        return args[0].create_runner(  # type: ignore[attr-defined]
+            policy=args[1],
+            budget=args[2],
+            collector=args[3],
+            cancellation_token=args[4],
+        )
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=runtime_factory,  # type: ignore[arg-type]
+        runner_factory=runner_factory,  # type: ignore[arg-type]
+    )
+    task = service.create(
+        CreateExplorationTaskCommand(
+            module_entry=ModuleEntry(module_id="dashboard", url=login_site.dashboard_url),
+            allowed_origins=[login_site.policy.allowed_origins[0]],
+            authentication_origins=[login_site.policy.authentication_origins[0]],
+            budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
+            authentication_plan=AuthenticationPlan(
+                authentication_url=login_site.login_url,
+                post_login_url_prefix=login_site.dashboard_url,
+                checkpoint_css_selector="#signed-in-marker",
+            ),
+            allow_local_http=True,
+        )
+    )
+
+    assert task.state == "paused_for_human"
+    service.confirm_login(task.task_id)
+
+    _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
+    assert service.result(task.task_id).page_count == 1  # type: ignore[union-attr]
+    assert runtime_closed.wait(timeout=2)
