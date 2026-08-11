@@ -279,16 +279,20 @@ class ExplorationTaskService:
     def cancel(self, task_id: str) -> TaskSummary:
         """Cancel once and trigger registered terminal cleanup; repeated cancel is safe."""
         managed = self._require_managed(task_id)
+        current_summary = managed.summary()
+        if current_summary.state in _TERMINAL_STATES:
+            if current_summary.state == "cancelled":
+                return current_summary
+            raise TaskServiceError("Task cannot be cancelled.")
         execution = self._execution_for(task_id)
         if execution is not None:
             execution.cancellation_token.cancel()
             execution.confirmation_requested.set()
-        if managed.summary().state not in _TERMINAL_STATES:
-            try:
-                managed.cancel(reason_code="user_cancelled")
-            except ExplorationTaskError:
-                raise TaskServiceError("Task cannot be cancelled.") from None
-            managed.set_phase("cancelled")
+        try:
+            managed.cancel(reason_code="user_cancelled")
+        except ExplorationTaskError:
+            raise TaskServiceError("Task cannot be cancelled.") from None
+        managed.set_phase("cancelled")
         if execution is not None and execution.runtime is not None:
             execution.runtime_closed.wait(timeout=5)
         return managed.summary()

@@ -31,7 +31,7 @@
 - Produces `TaskSummary`, `TaskEventView`, `TaskResultSummary`, `ManagedTask`, `ExplorationTaskRegistry`。
 - `ExplorationTaskRegistry.create(entry) -> ManagedTask`、`get(task_id) -> ManagedTask | None`、`remove_runtime(task_id) -> None`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_registry_exposes_only_safe_task_view() -> None:
@@ -45,23 +45,23 @@ def test_registry_returns_none_for_unknown_task() -> None:
     assert ExplorationTaskRegistry().get("missing") is None
 ```
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\task_management\test_registry.py`
 
 Expected: 因模块缺失而失败。
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 实现冻结的公共视图，只含 task id、状态、阶段、时间、审计白名单和页面/元素/链接计数。`ManagedTask` 用锁保护私有运行时字段；`summary()` 永不序列化 runtime、thread、browser 或 collector。
 
-- [ ] **Step 4: 验证**
+- [x] **Step 4: 验证**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\task_management\test_registry.py`
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add backend/src/ai_ui_explorer/task_management backend/tests/task_management/test_registry.py
@@ -79,7 +79,7 @@ git commit -m "feat: add in-memory exploration task registry"
 - Produces `CreateExplorationTaskCommand`、`ExplorationTaskService.create()`、`confirm_login()`、`cancel()`、`result()`。
 - Consumes Task 1 registry、`ExplorationRunner`、`HumanLoginSession`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_login_task_pauses_until_explicit_confirmation() -> None:
@@ -94,23 +94,23 @@ def test_cancel_closes_runtime_and_returns_cancelled() -> None:
     assert service.cancel(task.task_id).state == "cancelled"
 ```
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\task_management\test_service.py`
 
 Expected: 因 service 缺失而失败。
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 服务只接受显式 Origin、模块入口、预算和可选认证计划。在线程中运行 Runner；登录任务只在确认接口通过既有检查点验证后继续。所有异常进入固定失败状态，终态删除私有运行时引用；不写文件或数据库。
 
-- [ ] **Step 4: 验证**
+- [x] **Step 4: 验证**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\task_management\test_service.py tests\exploration\test_login_runtime.py`
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add backend/src/ai_ui_explorer/task_management backend/tests/task_management/test_service.py
@@ -128,7 +128,7 @@ git commit -m "feat: orchestrate managed exploration tasks"
 **Interfaces:**
 - Implements `POST/GET /api/v1/exploration-tasks`、`GET events/result`、`POST confirm-login/cancel`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 def test_create_and_read_task_returns_safe_schema(client: TestClient) -> None:
@@ -142,23 +142,23 @@ def test_unknown_task_uses_fixed_error(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "task_not_found"
 ```
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\api\test_exploration_tasks.py`
 
 Expected: 404 或路由缺失。
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 使用 Pydantic 请求/响应模型，应用生命周期创建单一 service。所有写接口只接受 POST，扩展 CORS 方法白名单为实际所需的 GET/POST。未知任务、非法状态和验证失败映射固定安全响应。
 
-- [ ] **Step 4: 验证**
+- [x] **Step 4: 验证**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\api\test_exploration_tasks.py tests\test_health.py`
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add backend/src/ai_ui_explorer/api backend/src/ai_ui_explorer/main.py backend/tests/api/test_exploration_tasks.py
@@ -178,7 +178,7 @@ git commit -m "feat: expose exploration task api"
 **Interfaces:**
 - Produces任务创建表单、状态详情、确认/取消操作和 2 秒轮询；只消费 Task 3 的安全 API schema。
 
-- [ ] **Step 1: 写失败组件测试**
+- [x] **Step 1: 写失败组件测试**
 
 ```ts
 it('only reveals login fields when manual login is selected', async () => {
@@ -194,17 +194,17 @@ it('shows confirm only while paused for human', () => {
 })
 ```
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `pnpm test -- ExplorationTaskForm ExplorationTaskDetail`
 
 Expected: 测试文件或组件缺失。
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 表单仅允许显式 Origin/预算/可选认证配置；详情只显示状态、审计、摘要、确认和取消。API 客户端不发送或缓存凭据，轮询在组件卸载或终态停止。
 
-- [ ] **Step 4: 验证**
+- [x] **Step 4: 验证**
 
 Run: `pnpm test -- ExplorationTaskForm ExplorationTaskDetail`
 
@@ -214,7 +214,7 @@ Run: `pnpm typecheck`
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add frontend/src frontend/tests
@@ -230,21 +230,21 @@ git commit -m "feat: add exploration task management ui"
 - Modify: `docs/07-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-08-11-sprint5-task-management.md`
 
-- [ ] **Step 1: 写本地 API 到浏览器探索 E2E 失败测试**
+- [x] **Step 1: 写本地 API 到浏览器探索 E2E 失败测试**
 
 测试使用 `login_site` fixture：创建登录任务、等待暂停、仅由测试私有辅助模拟人工点击、调用 confirm API、轮询终态、断言结果摘要和 Browser Context 已关闭。
 
-- [ ] **Step 2: 运行 RED**
+- [x] **Step 2: 运行 RED**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\api\test_exploration_tasks.py::test_local_login_task_completes_after_confirmation`
 
 Expected: Task 3 API 未完成前失败。
 
-- [ ] **Step 3: 完成最小验收与文档状态更新**
+- [x] **Step 3: 完成最小验收与文档状态更新**
 
 文档只声明本地、内存、进程内、无凭据持久化的任务管理已实现；明确数据库、恢复、Worker、外站与自动登录仍未实现。
 
-- [ ] **Step 4: 运行质量门**
+- [x] **Step 4: 运行质量门**
 
 Run: `..\.venv\Scripts\python.exe -m pytest -q tests\task_management tests\api tests\exploration tests\snapshot\test_browser.py`
 

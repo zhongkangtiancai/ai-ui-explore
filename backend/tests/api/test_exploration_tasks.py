@@ -1,18 +1,38 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from threading import Event
+from time import monotonic, sleep
 
 import pytest
 from fastapi.testclient import TestClient
 
 from ai_ui_explorer.api.routes.exploration_tasks import get_task_service
+from ai_ui_explorer.exploration.authentication import (
+    AuthenticationPlan,
+    AuthenticationVerification,
+)
+from ai_ui_explorer.exploration.login_runtime import HumanLoginSession
+from ai_ui_explorer.exploration.queue import ExplorationBudget
+from ai_ui_explorer.exploration.runner import (
+    ExplorationCancellationToken,
+    ExplorationRunner,
+)
 from ai_ui_explorer.main import create_app
+from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
+from ai_ui_explorer.snapshot.models import SnapshotLimits
 from ai_ui_explorer.task_management.models import (
     TaskEventView,
     TaskResultSummary,
     TaskSummary,
 )
-from ai_ui_explorer.task_management.service import TaskServiceError
+from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
+from ai_ui_explorer.task_management.service import (
+    ExplorationTaskService,
+    TaskServiceError,
+    _TaskRuntimeContext,
+)
+from tests.snapshot.conftest import LoginSite
 
 
 def valid_payload() -> dict[str, object]:
@@ -189,6 +209,149 @@ def test_post_cors_preflight_allows_the_task_api(client: TestClient) -> None:
     assert response.status_code == 200
     assert "POST" in response.headers["access-control-allow-methods"]
     assert "access-control-allow-credentials" not in response.headers
+
+
+def test_local_login_task_completes_after_confirmation(login_site: LoginSite) -> None:
+    runtime_closed = Event()
+    service = _local_login_service(login_site, runtime_closed)
+    app = create_app()
+    app.state.exploration_task_service = service
+
+    with TestClient(app) as local_client:
+        created = local_client.post(
+            "/api/v1/exploration-tasks",
+            json=_local_login_payload(login_site),
+        )
+        assert created.status_code == 202
+        task_id = created.json()["task_id"]
+
+        paused = _wait_for_task_state(local_client, task_id, "paused_for_human")
+        assert paused["phase"] == "awaiting_human"
+
+        confirmed = local_client.post(
+            f"/api/v1/exploration-tasks/{task_id}/confirm-login"
+        )
+        assert confirmed.status_code == 200
+
+        completed = _wait_for_task_state(local_client, task_id, "completed")
+        assert completed["phase"] == "completed"
+        result = local_client.get(f"/api/v1/exploration-tasks/{task_id}/result")
+        assert result.status_code == 200
+        assert result.json() == {
+            "page_count": 1,
+            "element_count": 0,
+            "link_count": 0,
+            "source_summary": "redacted source",
+        }
+        assert runtime_closed.wait(timeout=5)
+
+        rejected_confirmation = local_client.post(
+            f"/api/v1/exploration-tasks/{task_id}/confirm-login"
+        )
+        rejected_cancellation = local_client.post(
+            f"/api/v1/exploration-tasks/{task_id}/cancel"
+        )
+
+    assert rejected_confirmation.status_code == 409
+    assert rejected_cancellation.status_code == 409
+
+
+def _local_login_service(
+    login_site: LoginSite,
+    runtime_closed: Event,
+) -> ExplorationTaskService:
+    class SimulatedHumanRuntime:
+        def __init__(self, delegate: HumanLoginSession) -> None:
+            self._delegate = delegate
+
+        def start(self) -> None:
+            self._delegate.start()
+            browser = object.__getattribute__(self._delegate, "_browser")
+            page = object.__getattribute__(browser, "_page")
+            page.locator("#fixture-login").click()
+
+        def confirm_and_verify(self) -> AuthenticationVerification:
+            return self._delegate.confirm_and_verify()
+
+        def collector_port(self) -> object:
+            return self._delegate.collector_port()
+
+        def close(self) -> None:
+            self._delegate.close()
+            runtime_closed.set()
+
+    def runtime_factory(
+        context: _TaskRuntimeContext,
+        plan: AuthenticationPlan,
+        policy: object,
+    ) -> SimulatedHumanRuntime:
+        browser = PlaywrightBrowserSession.open(headless=False)
+        collector = context.create_session_collector(
+            session=browser,
+            limits=SnapshotLimits(),
+        )
+        runtime = context.create_human_login_session(
+            plan=plan,
+            policy=policy,  # type: ignore[arg-type]
+            browser=browser,
+            collector=collector,
+        )
+        return SimulatedHumanRuntime(runtime)
+
+    def runner_factory(
+        context: _TaskRuntimeContext,
+        policy: object,
+        budget: ExplorationBudget,
+        collector: object,
+        cancellation_token: ExplorationCancellationToken,
+    ) -> ExplorationRunner:
+        return context.create_runner(
+            policy=policy,  # type: ignore[arg-type]
+            budget=budget,
+            collector=collector,
+            cancellation_token=cancellation_token,
+        )
+
+    return ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=runtime_factory,  # type: ignore[arg-type]
+        runner_factory=runner_factory,
+    )
+
+
+def _local_login_payload(login_site: LoginSite) -> dict[str, object]:
+    return {
+        "module_entry": {
+            "module_id": "dashboard",
+            "url": login_site.dashboard_url,
+            "label": "Local dashboard",
+        },
+        "allowed_origins": [login_site.policy.allowed_origins[0]],
+        "authentication_origins": [login_site.policy.authentication_origins[0]],
+        "budget": {"max_pages": 1, "max_depth": 0, "max_queue_size": 1},
+        "authentication_plan": {
+            "authentication_url": login_site.login_url,
+            "post_login_url_prefix": login_site.dashboard_url,
+            "checkpoint_css_selector": "#signed-in-marker",
+        },
+        "allow_local_http": True,
+    }
+
+
+def _wait_for_task_state(
+    client: TestClient,
+    task_id: str,
+    expected_state: str,
+) -> dict[str, object]:
+    deadline = monotonic() + 10
+    while monotonic() < deadline:
+        response = client.get(f"/api/v1/exploration-tasks/{task_id}")
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["state"] == expected_state:
+            return payload
+        sleep(0.05)
+    raise AssertionError(f"Task did not reach {expected_state}.")
 
 
 def _summary() -> TaskSummary:
