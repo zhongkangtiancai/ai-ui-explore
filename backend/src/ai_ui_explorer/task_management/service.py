@@ -15,6 +15,7 @@ from ai_ui_explorer.exploration.authentication import (
 )
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
+from ai_ui_explorer.exploration.runner import ExplorationCancellationToken
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskError
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.task_management.models import (
@@ -50,12 +51,19 @@ class _TaskRunner(Protocol):
 
 
 RuntimeFactory = Callable[
-    [ExplorationTask, AuthenticationPlan, NavigationPolicy], _LoginRuntime
+    [ManagedTask, AuthenticationPlan, NavigationPolicy], _LoginRuntime
 ]
 RunnerFactory = Callable[
-    [NavigationPolicy, ExplorationBudget, object, ExplorationTask], _TaskRunner
+    [
+        NavigationPolicy,
+        ExplorationBudget,
+        object,
+        ManagedTask,
+        ExplorationCancellationToken,
+    ],
+    _TaskRunner,
 ]
-CollectorFactory = Callable[[ExplorationTask], object]
+CollectorFactory = Callable[[ManagedTask], object]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -71,9 +79,9 @@ class CreateExplorationTaskCommand(DeepFrozenModel):
 
 @dataclass
 class _TaskExecution:
-    task: ExplorationTask
     command: CreateExplorationTaskCommand
     policy: NavigationPolicy
+    cancellation_token: ExplorationCancellationToken
     runtime: _LoginRuntime | None = None
 
 
@@ -112,7 +120,11 @@ class ExplorationTaskService:
                 redaction_count=0,
             )
         )
-        execution = _TaskExecution(task=task, command=command, policy=policy)
+        execution = _TaskExecution(
+            command=command,
+            policy=policy,
+            cancellation_token=ExplorationCancellationToken(),
+        )
         with self._lock:
             self._executions[task.task_id] = execution
         task_id = task.task_id
@@ -129,7 +141,7 @@ class ExplorationTaskService:
         try:
             managed.start_collection()
             managed.set_phase("collecting")
-            self._start_runner(managed, execution, self._collector_factory(task))
+            self._start_runner(managed, execution, self._collector_factory(managed))
         except Exception:
             self._fail_collecting_task(managed)
         return managed.summary()
@@ -159,8 +171,11 @@ class ExplorationTaskService:
             self._sync_phase(managed)
             raise TaskServiceError("Task cannot confirm login.") from None
         if not verification.authenticated:
-            managed.set_phase("awaiting_human")
+            self._sync_phase(managed)
             return managed.summary()
+        if not managed.has_verified_authentication():
+            self._reject_unverified_confirmation(managed)
+            raise TaskServiceError("Task cannot confirm login.")
         try:
             managed.set_phase("collecting")
             self._start_runner(managed, execution, runtime.collector_port())
@@ -171,6 +186,9 @@ class ExplorationTaskService:
     def cancel(self, task_id: str) -> TaskSummary:
         """Cancel once and trigger registered terminal cleanup; repeated cancel is safe."""
         managed = self._require_managed(task_id)
+        execution = self._execution_for(task_id)
+        if execution is not None:
+            execution.cancellation_token.cancel()
         if managed.summary().state not in _TERMINAL_STATES:
             try:
                 managed.cancel(reason_code="user_cancelled")
@@ -192,7 +210,7 @@ class ExplorationTaskService:
         assert execution.command.authentication_plan is not None
         try:
             runtime = self._runtime_factory(
-                execution.task,
+                managed,
                 execution.command.authentication_plan,
                 execution.policy,
             )
@@ -214,7 +232,8 @@ class ExplorationTaskService:
             execution.policy,
             execution.command.budget,
             collector,
-            execution.task,
+            managed,
+            execution.cancellation_token,
         )
         thread = Thread(
             target=self._run_runner,
@@ -233,12 +252,14 @@ class ExplorationTaskService:
     ) -> None:
         try:
             result = runner.run(modules=[execution.command.module_entry])
+            self._record_run_result(managed, result)
+            self._complete_if_runner_did_not_finalize(managed, result)
         except Exception:
             self._fail_collecting_task(managed)
-            return
-        self._record_run_result(managed, result)
-        self._complete_if_runner_did_not_finalize(managed, result)
-        self._sync_phase(managed)
+        finally:
+            self._sync_phase(managed)
+            if managed.summary().state in _TERMINAL_STATES:
+                self._release_runtime(managed.task_id)
 
     def _record_run_result(self, managed: ManagedTask, result: object) -> None:
         visits = getattr(result, "visits", None)
@@ -282,6 +303,14 @@ class ExplorationTaskService:
             managed.fail(reason_code="login_runtime_error")
         self._sync_phase(managed)
 
+    def _reject_unverified_confirmation(self, managed: ManagedTask) -> None:
+        if managed.summary().state == "verifying_authentication":
+            managed.record_authentication_result(
+                authenticated=False,
+                checkpoint_id=None,
+            )
+        self._sync_phase(managed)
+
     def _sync_phase(self, managed: ManagedTask) -> None:
         phase = _PHASE_BY_STATE.get(managed.summary().state)
         if phase is not None:
@@ -300,11 +329,14 @@ class ExplorationTaskService:
         return managed
 
     def _require_execution(self, task_id: str) -> _TaskExecution:
-        with self._lock:
-            execution = self._executions.get(task_id)
+        execution = self._execution_for(task_id)
         if execution is None:
             raise TaskServiceError("Task cannot be resumed.")
         return execution
+
+    def _execution_for(self, task_id: str) -> _TaskExecution | None:
+        with self._lock:
+            return self._executions.get(task_id)
 
     def _release_runtime(self, task_id: str) -> None:
         self._registry.remove_runtime(task_id)
@@ -334,6 +366,6 @@ def _empty_result() -> TaskResultSummary:
     )
 
 
-def _empty_collector(_task: ExplorationTask) -> object:
+def _empty_collector(_task: ManagedTask) -> object:
     """Provide no browser state until a production collector is wired by the API."""
     return object()

@@ -14,7 +14,9 @@ from ai_ui_explorer.exploration.authentication import (
     AuthenticationVerification,
 )
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
+from ai_ui_explorer.exploration.runner import ExplorationCancellationToken
 from ai_ui_explorer.exploration.task import ExplorationTask
+from ai_ui_explorer.task_management.models import ManagedTask
 from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
 from ai_ui_explorer.task_management.service import (
     CreateExplorationTaskCommand,
@@ -117,7 +119,7 @@ class _Fakes:
 
     def runtime_factory(
         self,
-        task: ExplorationTask,
+        task: ManagedTask,
         _plan: AuthenticationPlan,
         _policy: object,
     ) -> _FakeLoginRuntime:
@@ -129,7 +131,8 @@ class _Fakes:
         _policy: object,
         _budget: ExplorationBudget,
         _collector: object,
-        task: ExplorationTask,
+        task: ManagedTask,
+        _cancellation_token: object,
     ) -> _FakeRunner:
         self.runner = _FakeRunner(
             task,
@@ -271,3 +274,195 @@ def test_terminal_task_rejects_login_confirmation() -> None:
 
     with pytest.raises(TaskServiceError, match=r"^Task cannot confirm login\.$"):
         service.confirm_login(task.task_id)
+
+
+def test_factories_receive_managed_capabilities_not_raw_tasks() -> None:
+    received: list[tuple[object, ...]] = []
+
+    class RecordingRuntime:
+        def __init__(self, managed: object) -> None:
+            self._managed = managed
+
+        def start(self) -> None:
+            assert isinstance(self._managed, ManagedTask)
+            self._managed.start_collection()
+            self._managed.pause_for_human(reason_code="authentication_required")
+
+        def confirm_and_verify(self) -> AuthenticationVerification:
+            assert isinstance(self._managed, ManagedTask)
+            self._managed.confirm_human_ready()
+            self._managed.record_authentication_result(
+                authenticated=True,
+                checkpoint_id="configured_post_login_checkpoint",
+            )
+            return AuthenticationVerification(
+                authenticated=True,
+                reason_code="verified",
+                checkpoint_id="configured_post_login_checkpoint",
+            )
+
+        def collector_port(self) -> object:
+            return object()
+
+        def close(self) -> None:
+            pass
+
+    class RecordingRunner:
+        def __init__(self, managed: object) -> None:
+            self._managed = managed
+
+        def run(self, *, modules: list[ModuleEntry]) -> _FakeRunResult:
+            assert modules[0].module_id == "dashboard"
+            assert isinstance(self._managed, ManagedTask)
+            self._managed.complete()
+            return _FakeRunResult(status="completed", visit_count=1)
+
+    def runtime_factory(*args: object) -> RecordingRuntime:
+        received.append(args)
+        return RecordingRuntime(args[0])
+
+    def runner_factory(*args: object) -> RecordingRunner:
+        received.append(args)
+        return RecordingRunner(args[-2])
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=runtime_factory,  # type: ignore[arg-type]
+        runner_factory=runner_factory,  # type: ignore[arg-type]
+    )
+
+    task = service.create(_command())
+    service.confirm_login(task.task_id)
+    _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
+
+    assert received
+    assert all(
+        not isinstance(argument, ExplorationTask)
+        for factory_arguments in received
+        for argument in factory_arguments
+    )
+
+
+def test_confirm_login_rejects_authenticated_claim_without_locked_checkpoint() -> None:
+    runner_calls: list[str] = []
+
+    class LyingRuntime:
+        def __init__(self, task: ManagedTask) -> None:
+            self._task = task
+
+        def start(self) -> None:
+            self._task.start_collection()
+            self._task.pause_for_human(reason_code="authentication_required")
+
+        def confirm_and_verify(self) -> AuthenticationVerification:
+            return AuthenticationVerification(
+                authenticated=True,
+                reason_code="verified",
+                checkpoint_id="configured_post_login_checkpoint",
+            )
+
+        def collector_port(self) -> object:
+            return object()
+
+        def close(self) -> None:
+            pass
+
+    def runtime_factory(
+        task: ManagedTask,
+        _plan: AuthenticationPlan,
+        _policy: object,
+    ) -> LyingRuntime:
+        return LyingRuntime(task)
+
+    def runner_factory(*_args: object) -> _FakeRunner:
+        runner_calls.append("called")
+        raise AssertionError("runner must not start from an unverified claim")
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=runtime_factory,
+        runner_factory=runner_factory,  # type: ignore[arg-type]
+    )
+    task = service.create(_command())
+
+    with pytest.raises(TaskServiceError, match=r"^Task cannot confirm login\.$"):
+        service.confirm_login(task.task_id)
+
+    assert runner_calls == []
+    assert service.get(task.task_id).state == "paused_for_human"  # type: ignore[union-attr]
+
+
+def test_worker_result_processing_failure_ends_task_and_releases_runtime() -> None:
+    class ExplodingResult:
+        @property
+        def visits(self) -> list[object]:
+            raise RuntimeError("token=should-not-leak")
+
+    class ExplodingRunner:
+        def __init__(self, task: ManagedTask) -> None:
+            self._task = task
+
+        def run(self, *, modules: list[ModuleEntry]) -> ExplodingResult:
+            assert modules[0].module_id == "dashboard"
+            return ExplodingResult()
+
+    fakes = _Fakes()
+
+    def runner_factory(
+        _policy: object,
+        _budget: ExplorationBudget,
+        _collector: object,
+        task: ManagedTask,
+        _cancellation_token: object,
+    ) -> ExplodingRunner:
+        return ExplodingRunner(task)
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=runner_factory,
+    )
+    task = service.create(_command(with_login=False))
+
+    _wait_for(lambda: service.get(task.task_id).state == "failed")  # type: ignore[union-attr]
+    summary = service.get(task.task_id)
+
+    assert summary is not None
+    assert summary.events[-1].reason_code == "runner_failure"
+    assert "should-not-leak" not in summary.model_dump_json()
+
+
+def test_cancel_signals_running_runner_before_releasing_runtime() -> None:
+    started = Event()
+    observed_cancellation = Event()
+
+    class CooperativeRunner:
+        def __init__(self, cancellation_token: ExplorationCancellationToken) -> None:
+            self._cancellation_token = cancellation_token
+
+        def run(self, *, modules: list[ModuleEntry]) -> _FakeRunResult:
+            assert modules[0].module_id == "dashboard"
+            started.set()
+            deadline = monotonic() + 2
+            while monotonic() < deadline:
+                if self._cancellation_token.is_cancelled:
+                    observed_cancellation.set()
+                    return _FakeRunResult(status="partial", visit_count=0)
+                sleep(0.01)
+            raise AssertionError("service did not signal runner cancellation")
+
+    fakes = _Fakes()
+
+    def runner_factory(*args: object) -> CooperativeRunner:
+        return CooperativeRunner(args[-1])  # type: ignore[arg-type]
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=runner_factory,  # type: ignore[arg-type]
+    )
+    task = service.create(_command(with_login=False))
+
+    assert started.wait(timeout=2)
+    assert service.cancel(task.task_id).state == "cancelled"
+    assert observed_cancellation.wait(timeout=2)

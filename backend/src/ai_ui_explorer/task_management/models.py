@@ -244,6 +244,15 @@ class ManagedTask:
         with self._lock:
             self._thread = thread
 
+    def has_verified_authentication(self) -> bool:
+        """Check the internal authenticated state without exposing checkpoint text."""
+        with self._lock:
+            return (
+                self._task.state == ExplorationTaskState.COLLECTING
+                and self._task.checkpoint_id is not None
+                and bool(self._task.checkpoint_id.strip())
+            )
+
     def summary(self) -> TaskSummary:
         """Return a locked, serializable view that excludes runtime handles."""
         with self._lock:

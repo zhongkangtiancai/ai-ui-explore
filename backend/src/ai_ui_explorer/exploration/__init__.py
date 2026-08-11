@@ -30,6 +30,7 @@ from ai_ui_explorer.exploration.queue import (
 )
 from ai_ui_explorer.exploration.runner import (
     CandidateExtractor,
+    ExplorationCancellationToken,
     ExplorationRunError,
     ExplorationRunner,
     ExplorationRunResult,
@@ -59,6 +60,7 @@ __all__ = [
     "CandidateExtractor",
     "EnqueueDecision",
     "ExplorationBudget",
+    "ExplorationCancellationToken",
     "ExplorationRunError",
     "ExplorationRunResult",
     "ExplorationRunner",

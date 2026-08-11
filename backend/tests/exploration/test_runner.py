@@ -11,7 +11,11 @@ from ai_ui_explorer.exploration.collector_adapter import (
 )
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry, NavigationCandidate
-from ai_ui_explorer.exploration.runner import ExplorationRunner, SnapshotCollectorPort
+from ai_ui_explorer.exploration.runner import (
+    ExplorationCancellationToken,
+    ExplorationRunner,
+    SnapshotCollectorPort,
+)
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskState
 from ai_ui_explorer.snapshot.browser import (
     PlaywrightBrowserSession,
@@ -447,6 +451,84 @@ def test_runner_marks_partial_on_collector_failure_without_leaking_error() -> No
     assert result.stop_reasons == ["collector_failure"]
     assert result.errors[0].safe_message == "Snapshot collection failed."
     assert "secret" not in result.model_dump_json()
+
+
+def test_runner_stops_before_next_target_after_cancellation() -> None:
+    root_url = "https://app.example.test/root"
+    detail_url = "https://app.example.test/detail"
+    token = ExplorationCancellationToken()
+
+    class CancellingCollector(FakeCollector):
+        def collect(self, url: str) -> SnapshotDocument:
+            snapshot = super().collect(url)
+            if url == root_url:
+                token.cancel()
+            return snapshot
+
+    collector = CancellingCollector(
+        {
+            root_url: make_snapshot(
+                source={
+                    "requested_url": root_url,
+                    "final_url": root_url,
+                    "title": "Root",
+                },
+                frames=[
+                    make_frame(
+                        elements=[
+                            make_element(
+                                tag="a",
+                                role="link",
+                                accessible_name="Detail",
+                                href=detail_url,
+                            )
+                        ]
+                    )
+                ],
+            ),
+            detail_url: make_snapshot(
+                source={
+                    "requested_url": detail_url,
+                    "final_url": detail_url,
+                    "title": "Detail",
+                }
+            ),
+        }
+    )
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=2, max_depth=1, max_queue_size=2),
+        collector=collector,
+        cancellation_token=token,
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert collector.collected_urls == [root_url]
+    assert result.status == "partial"
+    assert result.stop_reasons == ["cancelled"]
+
+
+def test_runner_does_not_override_a_task_cancelled_during_execution() -> None:
+    task = ExplorationTask.create(task_id="task-1")
+    task.start_collection()
+    task.cancel(reason_code="user_cancelled")
+    token = ExplorationCancellationToken()
+    token.cancel()
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
+        collector=_task_bound_collector(task),
+        task=task,
+        cancellation_token=token,
+    )
+
+    result = runner.run(
+        modules=[ModuleEntry(module_id="root", url="https://app.example.test/root")]
+    )
+
+    assert result.status == "partial"
+    assert task.state == ExplorationTaskState.CANCELLED
 
 
 def test_snapshot_collector_adapter_passes_url_and_limits_to_collector() -> None:
