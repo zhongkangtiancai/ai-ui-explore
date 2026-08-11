@@ -55,6 +55,10 @@ class TaskEventsResponse(DeepFrozenModel):
     events: list[TaskEventView]
 
 
+class TaskOperationRequest(DeepFrozenModel):
+    """An explicitly empty body for state-changing task operations."""
+
+
 def get_task_service(request: Request) -> ExplorationTaskService:
     """Return the application's one process-local task service."""
     service = getattr(request.app.state, "exploration_task_service", None)
@@ -97,6 +101,7 @@ def get_task_events(
 def confirm_login(
     task_id: str,
     service: Annotated[ExplorationTaskService, Depends(get_task_service)],
+    _payload: TaskOperationRequest | None = None,
 ) -> TaskSummary:
     _require_summary(service, task_id)
     try:
@@ -109,6 +114,7 @@ def confirm_login(
 def cancel_task(
     task_id: str,
     service: Annotated[ExplorationTaskService, Depends(get_task_service)],
+    _payload: TaskOperationRequest | None = None,
 ) -> TaskSummary:
     _require_summary(service, task_id)
     try:

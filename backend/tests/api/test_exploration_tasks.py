@@ -148,6 +148,35 @@ def test_create_rejects_sensitive_or_unknown_fields_with_fixed_error(
     assert "password" not in response.text.lower()
 
 
+@pytest.mark.parametrize("operation", ["confirm-login", "cancel"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"token": "not-accepted"},
+        {"cookie": "not-accepted"},
+        {"unexpected": "not-accepted"},
+    ],
+)
+def test_task_operations_reject_any_request_body_fields(
+    client: TestClient,
+    operation: str,
+    body: dict[str, str],
+) -> None:
+    response = client.post(
+        f"/api/v1/exploration-tasks/task-1/{operation}",
+        json=body,
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "code": "invalid_request",
+            "message": "Request validation failed",
+        }
+    }
+    assert next(iter(body)) not in response.text.lower()
+
+
 def test_post_cors_preflight_allows_the_task_api(client: TestClient) -> None:
     response = client.options(
         "/api/v1/exploration-tasks",
