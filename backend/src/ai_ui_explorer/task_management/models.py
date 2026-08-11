@@ -51,9 +51,9 @@ _SAFE_REASON_CODES = frozenset(
     }
 )
 _SAFE_CHECKPOINT_ID = "checkpoint_available"
-_SAFE_TASK_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$")
+_SAFE_TASK_ID = re.compile(r"^task-[0-9]{1,20}$")
 _SAFE_SOURCE_SUMMARY = re.compile(
-    r"^redacted source(?:: [a-z0-9][a-z0-9.-]{0,253})?$"
+    r"^redacted source(?:: origin-[0-9]{1,20})?$"
 )
 
 

@@ -35,7 +35,7 @@ def make_managed_task(task_id: str = "task-1") -> ManagedTask:
             page_count=1,
             element_count=4,
             link_count=2,
-            source_summary="redacted source: example.test",
+            source_summary="redacted source: origin-1",
         ),
         redaction_count=3,
         runtime=FakeRuntime(),
@@ -76,7 +76,18 @@ def test_registry_returns_none_for_unknown_task() -> None:
 
 @pytest.mark.parametrize(
     "source_summary",
-    ["cookie=raw-secret", "密码=raw-secret", "验证码=raw-secret", "令牌=raw-secret"],
+    [
+        "cookie=raw-secret",
+        "密码=raw-secret",
+        "验证码=raw-secret",
+        "令牌=raw-secret",
+        "redacted source: cookie.example",
+        "redacted source: token.example",
+        "redacted source: password.example",
+        "redacted source: context.example",
+        "redacted source: runtime.example",
+        "redacted source: thread.example",
+    ],
 )
 def test_result_summary_rejects_sensitive_source_text(source_summary: str) -> None:
     with pytest.raises(ValidationError):
@@ -85,6 +96,22 @@ def test_result_summary_rejects_sensitive_source_text(source_summary: str) -> No
             element_count=1,
             link_count=0,
             source_summary=source_summary,
+        )
+
+
+@pytest.mark.parametrize("task_id", ["cookie", "token", "password", "context", "runtime", "thread"])
+def test_managed_task_rejects_sensitive_task_id(task_id: str) -> None:
+    with pytest.raises(ValueError):
+        ManagedTask(
+            task=ExplorationTask.create(task_id=task_id),
+            phase="created",
+            result=TaskResultSummary(
+                page_count=0,
+                element_count=0,
+                link_count=0,
+                source_summary="redacted source",
+            ),
+            redaction_count=0,
         )
 
 
