@@ -223,6 +223,27 @@ class ManagedTask:
         with self._lock:
             self._task.register_terminal_callback(callback)
 
+    def set_phase(self, phase: str) -> None:
+        """Update the public lifecycle phase without exposing runtime handles."""
+        _require_safe_phase(phase)
+        with self._lock:
+            self._phase = phase
+
+    def set_result(self, result: TaskResultSummary) -> None:
+        """Replace the safe result summary through the synchronization boundary."""
+        with self._lock:
+            self._result = result
+
+    def attach_runtime(self, runtime: object) -> None:
+        """Retain one process-local runtime without making it serializable."""
+        with self._lock:
+            self._runtime = runtime
+
+    def attach_thread(self, thread: object) -> None:
+        """Retain one process-local worker handle without making it serializable."""
+        with self._lock:
+            self._thread = thread
+
     def summary(self) -> TaskSummary:
         """Return a locked, serializable view that excludes runtime handles."""
         with self._lock:
