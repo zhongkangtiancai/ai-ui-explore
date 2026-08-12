@@ -13,7 +13,10 @@ from ai_ui_explorer.exploration.authentication import (
     AuthenticationPlan,
     AuthenticationVerification,
 )
-from ai_ui_explorer.exploration.collector_adapter import SessionSnapshotCollectorAdapter
+from ai_ui_explorer.exploration.collector_adapter import (
+    SessionSnapshotCollectorAdapter,
+    SnapshotCollectorAdapter,
+)
 from ai_ui_explorer.exploration.login_runtime import HumanLoginSession
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
@@ -170,6 +173,13 @@ class _TaskRuntimeContext:
         collector: object,
         cancellation_token: ExplorationCancellationToken,
     ) -> ExplorationRunner:
+        if type(collector) is SnapshotCollectorAdapter:
+            return ExplorationRunner(
+                policy=policy,
+                budget=budget,
+                collector=cast(SnapshotCollectorPort, collector),
+                cancellation_token=cancellation_token,
+            )
         return self._managed._with_task(
             lambda task: ExplorationRunner(
                 policy=policy,

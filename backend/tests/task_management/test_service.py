@@ -13,10 +13,12 @@ from ai_ui_explorer.exploration.authentication import (
     AuthenticationPlan,
     AuthenticationVerification,
 )
+from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
-from ai_ui_explorer.exploration.runner import ExplorationCancellationToken
+from ai_ui_explorer.exploration.runner import ExplorationCancellationToken, ExplorationRunner
 from ai_ui_explorer.exploration.task import ExplorationTask
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
+from ai_ui_explorer.snapshot.collector import SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
 from ai_ui_explorer.task_management.models import ManagedTask
 from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
@@ -26,6 +28,7 @@ from ai_ui_explorer.task_management.service import (
     TaskServiceError,
 )
 from tests.snapshot.conftest import LoginSite
+from tests.snapshot.fakes import FakeSource
 
 
 @dataclass(frozen=True)
@@ -256,6 +259,43 @@ def test_runner_exception_ends_task_with_fixed_failure_reason() -> None:
     assert events is not None
     assert events[-1].reason_code == "runner_failure"
     assert "should-not-leak" not in service.get(task.task_id).model_dump_json()  # type: ignore[union-attr]
+
+
+def test_unattended_task_runs_with_only_the_internal_snapshot_collector_adapter() -> None:
+    def collector_factory(_context: object) -> SnapshotCollectorAdapter:
+        return SnapshotCollectorAdapter(
+            collector=SnapshotCollector(source=FakeSource.with_text("Visible page text")),
+            limits=SnapshotLimits(),
+        )
+
+    def runner_factory(
+        context: object,
+        policy: object,
+        budget: ExplorationBudget,
+        collector: object,
+        cancellation_token: ExplorationCancellationToken,
+    ) -> ExplorationRunner:
+        return context.create_runner(  # type: ignore[attr-defined]
+            policy=policy,
+            budget=budget,
+            collector=collector,
+            cancellation_token=cancellation_token,
+        )
+
+    fakes = _Fakes()
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=runner_factory,
+        collector_factory=collector_factory,
+    )
+
+    task = service.create(_command(with_login=False))
+
+    _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
+    result = service.result(task.task_id)
+    assert result is not None
+    assert result.page_count == 1
 
 
 def test_service_summarizes_only_safe_counts_from_runner_visits() -> None:

@@ -39,7 +39,7 @@ Sprint 3 不生成或持久化业务推断，不修改 `knowledge-package-v1` �
 Runner 已默认接入该提取器，并在重复页面状态上停止继续展开。
 
 已完成本地 HTTP fixture 的真实 Chromium 两页端到端验收，并修正 `max_pages` 在已访问入口页后
-重复计数的问题。
+重复计数的问题；无查询参数和片段的根目录 `/index.html` 会作为 `/` 的同一首页别名去重。
 
 第四切片已实现后端人机协同登录运行时：使用进程内存态的可见 Browser Context，要求人工显式
 确认，并按配置的登录后 URL 前缀和 CSS 检查点验证；验证成功后可复用同一 Context，通过现有
