@@ -188,6 +188,7 @@ class ElementSnapshot(BaseModel):
 
 
 class ElementSnapshotV1(ElementSnapshot):
+    href: str | None = Field(default=None, exclude=True)
     locator_hints: list[LocatorHint]
 
 

@@ -76,6 +76,24 @@ def test_snapshot_limits_use_approved_defaults() -> None:
     assert limits.max_json_bytes == 10 * 1024 * 1024
 
 
+def test_v1_serialization_excludes_href_while_v1_1_retains_navigation_href() -> None:
+    legacy_payload = make_legacy_snapshot().model_dump(mode="json")
+    current_snapshot = make_snapshot(
+        frames=[
+            make_frame(
+                elements=[make_element(href="https://example.test/help")],
+            )
+        ]
+    )
+    current_payload = current_snapshot.model_dump(mode="json")
+
+    assert "href" not in legacy_payload["frames"][0]["elements"][0]
+    assert (
+        current_payload["frames"][0]["elements"][0]["href"]
+        == "https://example.test/help"
+    )
+
+
 def test_snapshot_rejects_completed_status_when_truncated() -> None:
     with pytest.raises(ValidationError):
         make_snapshot(status="completed", truncated=True)
