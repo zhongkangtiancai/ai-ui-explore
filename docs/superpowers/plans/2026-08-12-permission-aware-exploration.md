@@ -218,7 +218,7 @@ Expected: FAIL because comparator does not exist.
 
 - [ ] **Step 3: Implement deterministic comparison**
 
-Normalize pages with the same root `/index.html` rule used by `BoundedExplorationQueue`; retain query/fragment as distinct. Sort identity IDs, pages and element keys before assigning IDs.
+Retain the observed page URL: `/` and `/index.html` are distinct unless a future, evidence-backed application rule explicitly establishes an alias. Retain query/fragment as distinct. Sort identity IDs, pages and element keys before assigning IDs.
 
 For elements, return a key only for same-frame unique `testid`, unique safe `id`, unique exact role/name, or unique safe link target combined with role/name. Do not use CSS, XPath, position, class, free text or traversal index as the sole cross-identity identity. Compare only allowlisted scalar attributes and `href`. Any partial run, unverified authentication, failed collection or missing match key emits `not_comparable`/`inconclusive` with the declared reason code.
 

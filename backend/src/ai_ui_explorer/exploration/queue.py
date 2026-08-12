@@ -1,7 +1,6 @@
 """Bounded queue primitives for controlled exploration."""
 
 from collections import deque
-from urllib.parse import urlparse, urlunparse
 
 from pydantic import Field
 
@@ -180,9 +179,7 @@ class BoundedExplorationQueue:
                 safe_message=navigation_decision.safe_message,
             )
         assert navigation_decision.normalized_url is not None
-        normalized_url = _canonicalize_root_index_document(
-            navigation_decision.normalized_url
-        )
+        normalized_url = navigation_decision.normalized_url
         if normalized_url in self._known_urls:
             return _reject("duplicate_url")
         if depth > self._budget.max_depth:
@@ -216,11 +213,3 @@ def _reject(reason_code: str) -> EnqueueDecision:
         reason_code=reason_code,
         safe_message="Navigation target rejected.",
     )
-
-
-def _canonicalize_root_index_document(url: str) -> str:
-    """Collapse the conventional root document alias without changing URL semantics."""
-    parsed = urlparse(url)
-    if parsed.path != "/index.html" or parsed.query or parsed.fragment:
-        return url
-    return urlunparse(parsed._replace(path="/"))

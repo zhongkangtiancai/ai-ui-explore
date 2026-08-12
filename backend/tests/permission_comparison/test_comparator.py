@@ -145,7 +145,7 @@ def test_comparator_refuses_to_match_same_test_id_in_different_frames() -> None:
     assert all(difference.kind != "link_target_changed" for difference in result.differences)
 
 
-def test_comparator_treats_root_index_document_as_the_root_page() -> None:
+def test_comparator_keeps_root_and_index_document_as_distinct_pages() -> None:
     result = PermissionComparator().compare(
         [
             _bundle("identity-1", pages=[_page("/", identity_id="identity-1")]),
@@ -156,7 +156,12 @@ def test_comparator_treats_root_index_document_as_the_root_page() -> None:
         ]
     )
 
-    assert result.differences == []
+    assert {
+        difference.subject_key for difference in result.differences
+    } == {
+        "page:https://app.example.test/",
+        "page:https://app.example.test/index.html",
+    }
 
 
 def test_comparator_uses_link_target_to_disambiguate_same_role_and_name() -> None:

@@ -69,7 +69,7 @@ def test_queue_deduplicates_normalized_default_ports_and_host_case() -> None:
     assert decisions[0].url == "https://app.example.test/dashboard"
 
 
-def test_queue_deduplicates_root_index_document_alias() -> None:
+def test_queue_keeps_root_and_index_document_as_distinct_targets() -> None:
     queue = BoundedExplorationQueue(
         policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
         budget=ExplorationBudget(max_pages=5, max_depth=2, max_queue_size=5),
@@ -90,8 +90,9 @@ def test_queue_deduplicates_root_index_document_alias() -> None:
         ],
     )[0]
 
-    assert decision.reason_code == "duplicate_url"
-    assert queue.pending_count == 0
+    assert decision.reason_code == "enqueued"
+    assert decision.url == "https://app.example.test/index.html"
+    assert queue.pending_count == 1
 
 
 def test_queue_keeps_root_index_document_with_query_as_distinct_target() -> None:

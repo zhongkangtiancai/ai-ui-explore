@@ -1,7 +1,5 @@
 """Deterministic, conservative comparison of identity evidence bundles."""
 
-from urllib.parse import urlparse, urlunparse
-
 from ai_ui_explorer.knowledge.ids import stable_id
 from ai_ui_explorer.permission_comparison.models import (
     DifferenceKind,
@@ -70,10 +68,7 @@ class PermissionComparator:
 
 
 def canonical_page_key(url: str) -> str:
-    """Apply the same safe root document alias rule as the exploration queue."""
-    parsed = urlparse(url)
-    if parsed.path == "/index.html" and not parsed.query and not parsed.fragment:
-        return urlunparse(parsed._replace(path="/"))
+    """Retain the observed URL because route aliases are application-specific."""
     return url
 
 
