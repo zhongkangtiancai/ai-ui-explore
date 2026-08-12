@@ -167,7 +167,7 @@ class SnapshotLocatorCandidate(BaseModel):
         return self
 
 
-class ElementSnapshot(BaseModel):
+class _ElementSnapshotBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     element_id: str
@@ -177,7 +177,6 @@ class ElementSnapshot(BaseModel):
     role: str | None
     accessible_name: str | None
     text: str | None
-    href: str | None = None
     attributes: dict[str, str]
     visible: bool
     enabled: bool | None
@@ -187,8 +186,11 @@ class ElementSnapshot(BaseModel):
     bounds: Bounds | None
 
 
-class ElementSnapshotV1(ElementSnapshot):
-    href: str | None = Field(default=None, exclude=True)
+class ElementSnapshot(_ElementSnapshotBase):
+    href: str | None = None
+
+
+class ElementSnapshotV1(_ElementSnapshotBase):
     locator_hints: list[LocatorHint]
 
 

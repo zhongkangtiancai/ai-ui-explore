@@ -31,6 +31,9 @@ _SNAPSHOT_V1_1_SCHEMA_PATH = (
     / "schema"
     / "snapshot-v1.1.schema.json"
 )
+_SNAPSHOT_V1_SCHEMA_PATH = _SNAPSHOT_V1_1_SCHEMA_PATH.with_name(
+    "snapshot-v1.schema.json"
+)
 
 
 def _make_valid_locator_candidate(**overrides: object) -> object:
@@ -335,10 +338,19 @@ def test_legacy_snapshot_model_accepts_version_1_0() -> None:
     payload["frames"][0]["elements"][0]["locator_hints"] = [
         {"strategy": "role", "value": "button"}
     ]
+    payload["frames"][0]["elements"][0].pop("href")
 
     legacy = SnapshotDocumentV1.model_validate(payload)
 
     assert legacy.schema_version == "1.0"
+
+
+def test_legacy_snapshot_model_rejects_navigation_href() -> None:
+    payload = make_legacy_snapshot().model_dump(mode="json")
+    payload["frames"][0]["elements"][0]["href"] = "https://example.test/help"
+
+    with pytest.raises(ValidationError):
+        SnapshotDocumentV1.model_validate(payload)
 
 
 def test_legacy_snapshot_rejects_current_locator_candidates() -> None:
@@ -522,6 +534,17 @@ def test_snapshot_v1_1_schema_matches_model() -> None:
     committed = json.loads(_SNAPSHOT_V1_1_SCHEMA_PATH.read_text(encoding="utf-8"))
 
     assert committed == SnapshotDocument.to_schema()
+
+
+def test_snapshot_v1_schema_matches_model() -> None:
+    committed = json.loads(_SNAPSHOT_V1_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    model_element_schema = SnapshotDocumentV1.model_json_schema()["$defs"][
+        "ElementSnapshotV1"
+    ]
+
+    assert "href" not in committed["$defs"]["ElementSnapshot"]["properties"]
+    assert "href" not in model_element_schema["properties"]
 
 
 def test_snapshot_accepts_sorted_unique_redaction_categories() -> None:
