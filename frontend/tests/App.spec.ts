@@ -8,6 +8,14 @@ vi.mock('../src/api/explorationTasks', () => ({
   fetchExplorationTask: vi.fn(),
 }))
 
+vi.mock('../src/api/permissionComparisons', () => ({
+  cancelPermissionComparison: vi.fn(),
+  confirmPermissionComparisonLogin: vi.fn(),
+  createPermissionComparison: vi.fn(),
+  downloadPermissionComparison: vi.fn(),
+  fetchPermissionComparison: vi.fn(),
+}))
+
 import App from '../src/App.vue'
 import {
   confirmExplorationTaskLogin,
@@ -15,6 +23,11 @@ import {
   fetchExplorationTask,
   type TaskSummary,
 } from '../src/api/explorationTasks'
+import {
+  createPermissionComparison,
+  fetchPermissionComparison,
+  type PermissionComparison,
+} from '../src/api/permissionComparisons'
 
 const createdTask: TaskSummary = {
   task_id: 'task-1',
@@ -30,6 +43,13 @@ const createdTask: TaskSummary = {
     link_count: 0,
     source_summary: 'redacted source',
   },
+}
+
+const completedComparison: PermissionComparison = {
+  comparison_id: 'comparison-1',
+  state: 'completed',
+  identities: { 'identity-1': 'completed', 'identity-2': 'completed' },
+  result: { comparison_id: 'comparison-1', status: 'completed', identities: [], differences: [] },
 }
 
 describe('App', () => {
@@ -172,6 +192,33 @@ describe('App', () => {
 
     expect(fetchExplorationTask).not.toHaveBeenCalled()
 
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
+  it('stops polling after a terminal comparison', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'ok',
+          service: 'backend',
+          version: '0.1.0',
+          environment: 'development',
+        }),
+      }),
+    )
+    vi.mocked(createPermissionComparison).mockResolvedValue(completedComparison)
+
+    const wrapper = mount(App)
+    await wrapper.get('[data-test="comparison-mode"]').trigger('click')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(4000)
+
+    expect(fetchPermissionComparison).not.toHaveBeenCalled()
     wrapper.unmount()
     vi.useRealTimers()
   })
