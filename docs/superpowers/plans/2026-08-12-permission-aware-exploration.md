@@ -451,6 +451,8 @@ git commit -m "feat: add permission comparison views"
 
 ### Task 7：多角色真实 Chromium E2E、文档与完整质量门
 
+> 实施状态（2026-08-12）：已完成。本地虚构角色 HTTP fixture 与真实 Chromium E2E 已验证：管理员专有页面被报告为高可靠 UI 可见性差异；受限身份的真实采集失败使结果变为 partial，所有差异均降级为 inconclusive。后端权限比较/任务管理/API 回归、浏览器快照 JUnit、知识与 Snapshot 兼容回归、Ruff、mypy、前端测试/Lint/类型检查/生产构建和 diff check 均已通过。
+
 **Files:**
 - Create: `backend/tests/api/fixtures/permission_comparison_site.py`
 - Modify: `backend/tests/api/test_permission_comparisons.py`

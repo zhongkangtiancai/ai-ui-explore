@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 
 from ai_ui_explorer.knowledge.evidence import EvidenceBuilder
 from ai_ui_explorer.knowledge.ids import canonical_json, stable_id
@@ -40,8 +40,6 @@ from ai_ui_explorer.knowledge.models import (
 from ai_ui_explorer.knowledge.predicates import Predicate
 from ai_ui_explorer.snapshot.models import (
     AnySnapshotDocument,
-    ElementSnapshot,
-    ElementSnapshotV1,
     FrameSnapshot,
     FrameSnapshotV1,
     SnapshotDocument,
@@ -52,7 +50,24 @@ from ai_ui_explorer.snapshot.redaction import Redactor
 
 UrlClassification = Literal["target", "authentication", "outside"]
 SnapshotFrame = FrameSnapshot | FrameSnapshotV1
-SnapshotElement = ElementSnapshot | ElementSnapshotV1
+
+
+class SnapshotElement(Protocol):
+    """Stable element fields shared by snapshot schema versions."""
+
+    element_id: str
+    frame_id: str
+    traversal_index: int
+    tag: str
+    role: str | None
+    accessible_name: str | None
+    text: str | None
+    attributes: dict[str, str]
+    visible: bool
+    enabled: bool | None
+    checked: bool | None
+    selected: bool | None
+    expanded: bool | None
 
 _ALLOWED_ATTRIBUTES = frozenset(
     {

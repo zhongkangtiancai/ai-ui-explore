@@ -52,6 +52,20 @@ class PermissionComparator:
                 )
             )
 
+        if any(bundle.state != IdentityRunState.COMPLETED for bundle in ordered_bundles):
+            differences = [
+                difference.model_copy(
+                    update={
+                        "reliability": DifferenceReliability.INCONCLUSIVE,
+                        "reason_codes": sorted(
+                            set(difference.reason_codes)
+                            | {"collection_incomplete"}
+                        ),
+                    }
+                )
+                for difference in differences
+            ]
+
         return PermissionComparisonResult(
             comparison_id="comparison-1",
             status=(
