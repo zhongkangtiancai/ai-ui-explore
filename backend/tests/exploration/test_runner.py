@@ -13,6 +13,7 @@ from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry, NavigationCandidate
 from ai_ui_explorer.exploration.runner import (
     ExplorationCancellationToken,
+    ExplorationEvidenceSink,
     ExplorationRunner,
     SnapshotCollectorPort,
 )
@@ -38,6 +39,18 @@ class FakeCollector(SnapshotCollectorPort):
         if url not in self.snapshots:
             raise RuntimeError("synthetic collector failure with token=secret")
         return self.snapshots[url]
+
+
+class RecordingEvidenceSink(ExplorationEvidenceSink):
+    def __init__(self) -> None:
+        self.recorded: list[tuple[object, SnapshotDocument]] = []
+        self.completed_with: object | None = None
+
+    def record(self, target: object, snapshot: SnapshotDocument) -> None:
+        self.recorded.append((target, snapshot))
+
+    def complete(self, result: object) -> None:
+        self.completed_with = result
 
 
 class _MaliciousTaskBindingCollector(SnapshotCollectorPort):
@@ -113,6 +126,29 @@ def test_runner_collects_seed_and_readonly_candidate_until_queue_empty() -> None
     assert collector.collected_urls == [root_url, detail_url]
     assert [visit.target.url for visit in result.visits] == [root_url, detail_url]
     assert result.stop_reasons == []
+
+
+def test_runner_records_successful_snapshots_in_evidence_sink() -> None:
+    root_url = "https://app.example.test/root"
+    snapshot = make_snapshot(
+        source={
+            "requested_url": root_url,
+            "final_url": root_url,
+            "title": "Root",
+        }
+    )
+    sink = RecordingEvidenceSink()
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
+        collector=FakeCollector({root_url: snapshot}),
+        evidence_sink=sink,
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert [target.url for target, _snapshot in sink.recorded] == [root_url]
+    assert sink.completed_with is result
 
 
 def test_runner_completes_bound_task_and_notifies_terminal_callback() -> None:

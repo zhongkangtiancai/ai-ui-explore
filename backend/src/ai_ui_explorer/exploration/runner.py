@@ -15,6 +15,7 @@ from ai_ui_explorer.exploration.queue import (
     BoundedExplorationQueue,
     EnqueueDecision,
     ExplorationBudget,
+    ExplorationTarget,
     ModuleEntry,
     NavigationCandidate,
     SnapshotVisitResult,
@@ -27,6 +28,16 @@ from ai_ui_explorer.snapshot.models import SnapshotDocument
 class SnapshotCollectorPort(Protocol):
     def collect(self, url: str) -> SnapshotDocument:
         """Collect one already policy-approved URL into a Snapshot document."""
+
+
+class ExplorationEvidenceSink(Protocol):
+    """Receive successful, validated Snapshots without browser runtime objects."""
+
+    def record(self, target: "ExplorationTarget", snapshot: SnapshotDocument) -> None:
+        """Record one successful Snapshot visit."""
+
+    def complete(self, result: "ExplorationRunResult") -> None:
+        """Observe the final completed or partial run."""
 
 
 class ExplorationCancellationToken:
@@ -72,6 +83,7 @@ class ExplorationRunner:
         candidate_extractor: CandidateExtractor = extract_navigation_candidates,
         task: ExplorationTask | None = None,
         cancellation_token: ExplorationCancellationToken | None = None,
+        evidence_sink: ExplorationEvidenceSink | None = None,
     ) -> None:
         if task is not None and not _session_collector_matches_task(
             collector,
@@ -83,6 +95,7 @@ class ExplorationRunner:
         self._candidate_extractor = candidate_extractor
         self._task = task
         self._cancellation_token = cancellation_token or ExplorationCancellationToken()
+        self._evidence_sink = evidence_sink
 
     def run(self, *, modules: list[ModuleEntry]) -> ExplorationRunResult:
         result: ExplorationRunResult | None = None
@@ -90,6 +103,8 @@ class ExplorationRunner:
             result = self._run(modules=modules)
             return result
         finally:
+            if result is not None and self._evidence_sink is not None:
+                self._evidence_sink.complete(result)
             self._finalize_task(result)
 
     def _run(self, *, modules: list[ModuleEntry]) -> ExplorationRunResult:
@@ -119,6 +134,8 @@ class ExplorationRunner:
                 continue
             visit = self._queue.record_snapshot_result(target, snapshot)
             visits.append(visit)
+            if self._evidence_sink is not None:
+                self._evidence_sink.record(target, snapshot)
             if visit.seen_before:
                 stop_reasons.append("duplicate_state")
                 continue

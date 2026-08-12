@@ -110,6 +110,8 @@ class ElementEvidence(DeepFrozenModel):
     tag: str = Field(min_length=1, max_length=80)
     role: str | None = Field(default=None, max_length=120)
     accessible_name: str | None = Field(default=None, max_length=500)
+    text: str | None = Field(default=None, max_length=500)
+    attributes: dict[str, str] = Field(default_factory=dict, max_length=32)
     href: str | None = Field(default=None, max_length=2_048)
     locator_hints: list[str] = Field(default_factory=list, max_length=12)
     evidence_refs: list[EvidenceReference] = Field(min_length=1, max_length=12)

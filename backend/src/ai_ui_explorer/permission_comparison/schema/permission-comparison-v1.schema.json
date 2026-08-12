@@ -68,6 +68,27 @@
           "default": null,
           "title": "Accessible Name"
         },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "maxProperties": 32,
+          "title": "Attributes",
+          "type": "object"
+        },
         "href": {
           "anyOf": [
             {
