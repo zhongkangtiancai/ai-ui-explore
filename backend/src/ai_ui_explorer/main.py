@@ -16,6 +16,7 @@ from ai_ui_explorer.exploration.runner import (
     ExplorationCancellationToken,
     ExplorationRunner,
 )
+from ai_ui_explorer.permission_comparison.service import PermissionComparisonService
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession, PlaywrightBrowserSource
 from ai_ui_explorer.snapshot.collector import SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
@@ -36,7 +37,11 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
-    app.state.exploration_task_service = _create_task_service()
+    task_service = _create_task_service()
+    app.state.exploration_task_service = task_service
+    app.state.permission_comparison_service = PermissionComparisonService(
+        task_service=task_service
+    )
     app.include_router(api_router)
 
     @app.exception_handler(TaskApiError)

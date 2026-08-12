@@ -20,6 +20,7 @@ from ai_ui_explorer.permission_comparison.models import (
     PageEvidence,
     PermissionComparisonExport,
     PermissionComparisonResult,
+    VisibilityDifference,
 )
 from ai_ui_explorer.task_management.models import TaskSummary
 from ai_ui_explorer.task_management.service import (
@@ -199,7 +200,7 @@ class PermissionComparisonService:
             if page.page_key == page_key
         )
 
-    def differences(self, comparison_id: str) -> list[object]:
+    def differences(self, comparison_id: str) -> list[VisibilityDifference]:
         result = self.get(comparison_id).result
         return list(result.differences) if result is not None else []
 
