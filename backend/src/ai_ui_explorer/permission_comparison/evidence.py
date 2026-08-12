@@ -89,7 +89,7 @@ def _elements(
                     ),
                     text=_optional_text(element.text, redactor),
                     attributes=dict(
-                        list(redactor.redact_mapping(element.attributes)[0].items())[ 
+                        list(redactor.redact_mapping(element.attributes)[0].items())[
                             :_MAX_ATTRIBUTES
                         ]
                     ),
