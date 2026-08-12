@@ -22,6 +22,7 @@ from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
 from ai_ui_explorer.exploration.runner import (
     ExplorationCancellationToken,
+    ExplorationEvidenceSink,
     ExplorationRunner,
     SnapshotCollectorPort,
 )
@@ -101,13 +102,21 @@ class _TaskExecution:
     runtime_closed: Event = field(default_factory=Event)
     confirmation_failed: bool = False
     confirmation_in_flight: bool = False
+    on_terminal: Callable[[TaskSummary], None] | None = None
+    terminal_notified: Event = field(default_factory=Event)
 
 
 class _TaskRuntimeContext:
     """Private, controlled bridge to one hidden ExplorationTask identity."""
 
-    def __init__(self, managed: ManagedTask) -> None:
+    def __init__(
+        self,
+        managed: ManagedTask,
+        *,
+        evidence_sink: ExplorationEvidenceSink | None = None,
+    ) -> None:
         self._managed = managed
+        self._evidence_sink = evidence_sink
 
     def start_collection(self) -> None:
         self._managed.start_collection()
@@ -179,6 +188,7 @@ class _TaskRuntimeContext:
                 budget=budget,
                 collector=cast(SnapshotCollectorPort, collector),
                 cancellation_token=cancellation_token,
+                evidence_sink=self._evidence_sink,
             )
         return self._managed._with_task(
             lambda task: ExplorationRunner(
@@ -187,6 +197,7 @@ class _TaskRuntimeContext:
                 collector=cast(SnapshotCollectorPort, collector),
                 task=task,
                 cancellation_token=cancellation_token,
+                evidence_sink=self._evidence_sink,
             )
         )
 
@@ -210,7 +221,13 @@ class ExplorationTaskService:
         self._executions: dict[str, _TaskExecution] = {}
         self._next_task_number = 1
 
-    def create(self, command: CreateExplorationTaskCommand) -> TaskSummary:
+    def create(
+        self,
+        command: CreateExplorationTaskCommand,
+        *,
+        evidence_sink: ExplorationEvidenceSink | None = None,
+        on_terminal: Callable[[TaskSummary], None] | None = None,
+    ) -> TaskSummary:
         """Register a task and start it or pause it for explicit human login."""
         policy = NavigationPolicy(
             allowed_origins=list(command.allowed_origins),
@@ -226,12 +243,13 @@ class ExplorationTaskService:
                 redaction_count=0,
             )
         )
-        context = _TaskRuntimeContext(managed)
+        context = _TaskRuntimeContext(managed, evidence_sink=evidence_sink)
         execution = _TaskExecution(
             command=command,
             policy=policy,
             cancellation_token=ExplorationCancellationToken(),
             context=context,
+            on_terminal=on_terminal,
         )
         with self._lock:
             self._executions[task.task_id] = execution
@@ -351,6 +369,7 @@ class ExplorationTaskService:
                 except Exception:
                     pass
             execution.runtime_closed.set()
+            self._notify_terminal(execution, managed.summary())
             return
         finally:
             execution.startup_ready.set()
@@ -372,6 +391,7 @@ class ExplorationTaskService:
                 except Exception:
                     pass
             execution.runtime_closed.set()
+            self._notify_terminal(execution, managed.summary())
 
     def _verify_login_in_owner_thread(
         self,
@@ -456,6 +476,8 @@ class ExplorationTaskService:
             self._sync_phase(managed)
             if managed.summary().state in _TERMINAL_STATES:
                 self._release_runtime(managed.task_id)
+                if execution.command.authentication_plan is None:
+                    self._notify_terminal(execution, managed.summary())
 
     def _record_run_result(self, managed: ManagedTask, result: object) -> None:
         visits = getattr(result, "visits", None)
@@ -544,6 +566,22 @@ class ExplorationTaskService:
         self._registry.remove_runtime(task_id)
         with self._lock:
             self._executions.pop(task_id, None)
+
+    def _notify_terminal(
+        self,
+        execution: _TaskExecution,
+        summary: TaskSummary,
+    ) -> None:
+        if execution.terminal_notified.is_set():
+            return
+        execution.terminal_notified.set()
+        callback = execution.on_terminal
+        if callback is None:
+            return
+        try:
+            callback(summary)
+        except Exception:
+            pass
 
 
 _TERMINAL_STATES = frozenset({"completed", "partial", "failed", "cancelled"})

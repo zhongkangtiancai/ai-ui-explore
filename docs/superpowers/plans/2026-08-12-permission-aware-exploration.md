@@ -241,6 +241,8 @@ git commit -m "feat: compare identity visibility evidence"
 
 ### Task 4：串行多身份任务服务与人工登录编排
 
+> 实施状态（2026-08-12）：已完成实现与专项验证，待独立复核和本地提交。每个身份继续复用独立的单任务 Browser Context 与线程；比较服务只接收经脱敏的证据包和终态摘要，不共享登录态。
+
 **Files:**
 - Create: `backend/src/ai_ui_explorer/permission_comparison/service.py`
 - Modify: `backend/src/ai_ui_explorer/task_management/service.py`
