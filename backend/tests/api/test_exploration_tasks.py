@@ -13,14 +13,20 @@ from ai_ui_explorer.exploration.authentication import (
     AuthenticationVerification,
 )
 from ai_ui_explorer.exploration.login_runtime import HumanLoginSession
-from ai_ui_explorer.exploration.queue import ExplorationBudget
+from ai_ui_explorer.exploration.queue import ExplorationBudget, ExplorationTarget
 from ai_ui_explorer.exploration.runner import (
     ExplorationCancellationToken,
     ExplorationRunner,
 )
 from ai_ui_explorer.main import create_app
+from ai_ui_explorer.permission_comparison.evidence import project_snapshot
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.models import SnapshotLimits
+from ai_ui_explorer.snapshot.redaction import Redactor
+from ai_ui_explorer.task_management.evidence import (
+    ExplorationEvidenceExport,
+    TaskPageView,
+)
 from ai_ui_explorer.task_management.models import (
     TaskEventView,
     TaskResultSummary,
@@ -33,6 +39,7 @@ from ai_ui_explorer.task_management.service import (
     _TaskRuntimeContext,
 )
 from tests.snapshot.conftest import LoginSite
+from tests.snapshot.factories import make_snapshot
 
 
 def valid_payload() -> dict[str, object]:
@@ -78,6 +85,27 @@ class _FakeTaskService:
     def result(self, task_id: str) -> TaskResultSummary | None:
         summary = self.get(task_id)
         return summary.result if summary is not None else None
+
+    def pages(self, task_id: str) -> list[TaskPageView] | None:
+        if self.get(task_id) is None:
+            return None
+        return [_page_view()]
+
+    def page_detail(self, task_id: str, page_id: str):
+        if self.get(task_id) is None or page_id != "page-1":
+            return None
+        return _page_evidence()
+
+    def export(self, task_id: str) -> ExplorationEvidenceExport | None:
+        if self.get(task_id) is None:
+            return None
+        return ExplorationEvidenceExport(
+            schema_version="1.0",
+            task_id=task_id,
+            state="completed",
+            result=self.summary.result,
+            pages=[_page_view()],
+        )
 
 
 @pytest.fixture
@@ -209,6 +237,57 @@ def test_post_cors_preflight_allows_the_task_api(client: TestClient) -> None:
     assert response.status_code == 200
     assert "POST" in response.headers["access-control-allow-methods"]
     assert "access-control-allow-credentials" not in response.headers
+
+
+def test_pages_detail_and_export_are_safe_and_schema_valid(client: TestClient) -> None:
+    pages = client.get("/api/v1/exploration-tasks/task-1/pages")
+    assert pages.status_code == 200
+    assert pages.json()[0]["page_id"] == "page-1"
+
+    detail = client.get("/api/v1/exploration-tasks/task-1/pages/page-1")
+    assert detail.status_code == 200
+    assert detail.json()["elements"]
+
+    exported = client.get("/api/v1/exploration-tasks/task-1/export")
+    assert exported.headers["content-type"].startswith("application/json")
+    assert "attachment; filename=exploration-evidence.json" in exported.headers[
+        "content-disposition"
+    ]
+    assert "password" not in exported.text.lower()
+    assert "cookie" not in exported.text.lower()
+
+
+def test_unknown_task_and_page_use_fixed_safe_errors(client: TestClient) -> None:
+    assert client.get("/api/v1/exploration-tasks/task-999/pages").status_code == 404
+    assert client.get("/api/v1/exploration-tasks/task-1/pages/page-999").status_code == 404
+
+
+def _page_evidence():
+    return project_snapshot(
+        target=ExplorationTarget(
+            url="https://app.example.test/dashboard?token=fixture-secret",
+            depth=0,
+            source_url=None,
+            module_id="dashboard",
+            action_type="module_entry",
+            label="Dashboard",
+        ),
+        snapshot=make_snapshot(),
+        redactor=Redactor(),
+    )
+
+
+def _page_view() -> TaskPageView:
+    page = _page_evidence()
+    return TaskPageView(
+        page_id="page-1",
+        page_key=page.page_key,
+        frame_count=1,
+        element_count=len(page.elements),
+        link_count=0,
+        status="observed",
+        evidence_refs=list(page.evidence_refs),
+    )
 
 
 def test_local_login_task_completes_after_confirmation(login_site: LoginSite) -> None:

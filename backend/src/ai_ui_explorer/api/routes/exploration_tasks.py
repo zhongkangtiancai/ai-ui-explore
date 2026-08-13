@@ -1,12 +1,20 @@
 """Safe HTTP routes for process-local controlled exploration tasks."""
 
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
+from jsonschema import Draft202012Validator
 
 from ai_ui_explorer.exploration.authentication import AuthenticationPlan
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
+from ai_ui_explorer.permission_comparison.models import PageEvidence
+from ai_ui_explorer.task_management.evidence import (
+    ExplorationEvidenceExport,
+    TaskPageView,
+)
 from ai_ui_explorer.task_management.models import (
     TaskEventView,
     TaskResultSummary,
@@ -134,6 +142,48 @@ def get_task_result(
     return result
 
 
+@router.get("/{task_id}/pages", response_model=list[TaskPageView])
+def get_task_pages(
+    task_id: str,
+    service: Annotated[ExplorationTaskService, Depends(get_task_service)],
+) -> list[TaskPageView]:
+    pages = service.pages(task_id)
+    if pages is None:
+        raise _task_not_found()
+    return pages
+
+
+@router.get("/{task_id}/pages/{page_id}")
+def get_task_page_detail(
+    task_id: str,
+    page_id: str,
+    service: Annotated[ExplorationTaskService, Depends(get_task_service)],
+) -> PageEvidence:
+    if service.get(task_id) is None:
+        raise _task_not_found()
+    page = service.page_detail(task_id, page_id)
+    if page is None:
+        raise _page_not_found()
+    return page
+
+
+@router.get("/{task_id}/export")
+def export_task_evidence(
+    task_id: str,
+    service: Annotated[ExplorationTaskService, Depends(get_task_service)],
+) -> Response:
+    export = service.export(task_id)
+    if export is None:
+        raise _task_not_found()
+    payload = export.model_dump(mode="json")
+    Draft202012Validator(ExplorationEvidenceExport.model_json_schema()).validate(payload)
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=exploration-evidence.json"},
+    )
+
+
 def _require_summary(service: ExplorationTaskService, task_id: str) -> TaskSummary:
     summary = service.get(task_id)
     if summary is None:
@@ -146,6 +196,14 @@ def _task_not_found() -> TaskApiError:
         status_code=404,
         code="task_not_found",
         message="Task not found",
+    )
+
+
+def _page_not_found() -> TaskApiError:
+    return TaskApiError(
+        status_code=404,
+        code="page_not_found",
+        message="Page not found",
     )
 
 
