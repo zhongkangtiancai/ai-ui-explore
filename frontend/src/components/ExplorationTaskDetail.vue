@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 
 import type { TaskSummary } from '../api/explorationTasks'
+import ExplorationEvidenceBrowser from './ExplorationEvidenceBrowser.vue'
 
 const props = defineProps<{
   task: TaskSummary
@@ -74,6 +75,8 @@ const canConfirmLogin = computed(() => props.task.state === 'paused_for_human')
       </dl>
       <p class="source-summary">{{ task.result.source_summary }}</p>
     </section>
+
+    <ExplorationEvidenceBrowser :task-id="task.task_id" :task-state="task.state" />
   </section>
 </template>
 

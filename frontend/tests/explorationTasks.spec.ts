@@ -4,6 +4,9 @@ import {
   cancelExplorationTask,
   confirmExplorationTaskLogin,
   createExplorationTask,
+  downloadExplorationTaskEvidence,
+  fetchExplorationTaskPageDetail,
+  fetchExplorationTaskPages,
 } from '../src/api/explorationTasks'
 
 describe('exploration task API client', () => {
@@ -66,5 +69,32 @@ describe('exploration task API client', () => {
       method: 'POST',
       headers: { Accept: 'application/json' },
     })
+  })
+
+  it('reads page evidence and downloads its export through read-only endpoints', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [{ page_id: 'page-1' }],
+      blob: async () => new Blob(['{}'], { type: 'application/json' }),
+    })
+    const click = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fixture'), revokeObjectURL: vi.fn() })
+    vi.spyOn(document, 'createElement').mockReturnValue({ click } as unknown as HTMLAnchorElement)
+
+    await fetchExplorationTaskPages('task-1')
+    await fetchExplorationTaskPageDetail('task-1', 'page-1')
+    await downloadExplorationTaskEvidence('task-1')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/exploration-tasks/task-1/pages', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/exploration-tasks/task-1/pages/page-1', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/exploration-tasks/task-1/export', {
+      headers: { Accept: 'application/json' },
+    })
+    expect(click).toHaveBeenCalledOnce()
   })
 })

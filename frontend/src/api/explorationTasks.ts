@@ -61,6 +61,63 @@ export interface TaskSummary {
   result: TaskResultSummary
 }
 
+export interface EvidenceReference {
+  evidence_id: string
+  snapshot_id: string
+  snapshot_schema_version: string
+  snapshot_sha256: string
+  json_pointer: string
+  excerpt: string
+}
+
+export interface TaskPageView {
+  page_id: string
+  page_key: string
+  frame_count: number
+  element_count: number
+  link_count: number
+  status: 'observed'
+  reason_codes: string[]
+  evidence_refs: EvidenceReference[]
+}
+
+export interface LocatorCandidateEvidence {
+  locator_id?: string
+  strategy: string
+  parameters: Record<string, string | boolean | number>
+  rank: number
+  recommended?: boolean
+  uniqueness?: string
+  stability?: string
+  confidence?: number
+  frame_path?: string
+  limitations?: string[]
+  evidence_refs?: EvidenceReference[]
+}
+
+export interface PageElementEvidence {
+  element_key: string
+  frame_path: string
+  tag: string
+  role: string | null
+  accessible_name: string | null
+  text: string | null
+  attributes: Record<string, string>
+  href: string | null
+  visible: boolean | null
+  enabled: boolean | null
+  bounds: { x: number; y: number; width: number; height: number } | null
+  locator_hints: string[]
+  locator_candidates: LocatorCandidateEvidence[]
+  evidence_refs: EvidenceReference[]
+}
+
+export interface PageEvidence {
+  page_key: string
+  elements: PageElementEvidence[]
+  evidence_refs: EvidenceReference[]
+}
+
 export class ExplorationTaskApiError extends Error {
   constructor() {
     super('Exploration task request failed')
@@ -95,6 +152,43 @@ export async function fetchExplorationTaskResult(taskId: string): Promise<TaskRe
   return request<TaskResultSummary>(`/exploration-tasks/${encodeURIComponent(taskId)}/result`, {
     headers: acceptHeaders(),
   })
+}
+
+export async function fetchExplorationTaskPages(taskId: string): Promise<TaskPageView[]> {
+  return request<TaskPageView[]>(`/exploration-tasks/${encodeURIComponent(taskId)}/pages`, {
+    headers: acceptHeaders(),
+  })
+}
+
+export async function fetchExplorationTaskPageDetail(
+  taskId: string,
+  pageId: string,
+): Promise<PageEvidence> {
+  return request<PageEvidence>(
+    `/exploration-tasks/${encodeURIComponent(taskId)}/pages/${encodeURIComponent(pageId)}`,
+    { headers: acceptHeaders() },
+  )
+}
+
+export async function downloadExplorationTaskEvidence(taskId: string): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(`${apiBaseUrl}/exploration-tasks/${encodeURIComponent(taskId)}/export`, {
+      headers: acceptHeaders(),
+    })
+  } catch {
+    throw new ExplorationTaskApiError()
+  }
+  if (!response.ok) {
+    throw new ExplorationTaskApiError()
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = 'exploration-evidence.json'
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 export async function confirmExplorationTaskLogin(taskId: string): Promise<TaskSummary> {
