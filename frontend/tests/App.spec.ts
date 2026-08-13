@@ -5,7 +5,10 @@ vi.mock('../src/api/explorationTasks', () => ({
   cancelExplorationTask: vi.fn(),
   confirmExplorationTaskLogin: vi.fn(),
   createExplorationTask: vi.fn(),
+  downloadExplorationTaskEvidence: vi.fn(),
   fetchExplorationTask: vi.fn(),
+  fetchExplorationTaskPageDetail: vi.fn(),
+  fetchExplorationTaskPages: vi.fn(),
 }))
 
 vi.mock('../src/api/permissionComparisons', () => ({
@@ -21,6 +24,7 @@ import {
   confirmExplorationTaskLogin,
   createExplorationTask,
   fetchExplorationTask,
+  fetchExplorationTaskPages,
   type TaskSummary,
 } from '../src/api/explorationTasks'
 import {
@@ -194,6 +198,34 @@ describe('App', () => {
 
     wrapper.unmount()
     vi.useRealTimers()
+  })
+
+  it('embeds the read-only evidence browser for a completed task', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'ok',
+          service: 'backend',
+          version: '0.1.0',
+          environment: 'development',
+        }),
+      }),
+    )
+    vi.mocked(fetchExplorationTaskPages).mockResolvedValue([])
+    vi.mocked(createExplorationTask).mockResolvedValue({
+      ...createdTask,
+      state: 'completed',
+      phase: 'completed',
+    })
+
+    const wrapper = mount(App)
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('探索明细')
+    expect(wrapper.text()).toContain('已采集的脱敏证据')
   })
 
   it('stops polling after a terminal comparison', async () => {

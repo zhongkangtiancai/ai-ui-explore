@@ -335,6 +335,42 @@ def test_local_login_task_completes_after_confirmation(login_site: LoginSite) ->
     assert rejected_cancellation.status_code == 409
 
 
+def test_local_browser_task_exposes_redacted_page_and_locator_details(
+    login_site: LoginSite,
+) -> None:
+    runtime_closed = Event()
+    service = _local_login_service(login_site, runtime_closed)
+    app = create_app()
+    app.state.exploration_task_service = service
+
+    with TestClient(app) as local_client:
+        created = local_client.post(
+            "/api/v1/exploration-tasks",
+            json=_local_login_payload(login_site),
+        )
+        task_id = created.json()["task_id"]
+        _wait_for_task_state(local_client, task_id, "paused_for_human")
+        assert local_client.post(
+            f"/api/v1/exploration-tasks/{task_id}/confirm-login"
+        ).status_code == 200
+        _wait_for_task_state(local_client, task_id, "completed")
+
+        pages = local_client.get(f"/api/v1/exploration-tasks/{task_id}/pages")
+        assert pages.status_code == 200
+        assert len(pages.json()) == 1
+        assert pages.json()[0]["page_id"] == "page-1"
+
+        detail = local_client.get(
+            f"/api/v1/exploration-tasks/{task_id}/pages/page-1"
+        )
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["elements"]
+        assert any(item["locator_candidates"] for item in payload["elements"])
+        assert "fixture-password-do-not-return" not in str(payload)
+        assert runtime_closed.wait(timeout=5)
+
+
 def _local_login_service(
     login_site: LoginSite,
     runtime_closed: Event,

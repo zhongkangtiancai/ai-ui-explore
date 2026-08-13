@@ -55,7 +55,11 @@ async function loadPages(): Promise<void> {
   detail.value = null
   selectedElementKey.value = null
   try {
-    pages.value = await fetchExplorationTaskPages(props.taskId)
+    const loadedPages = await fetchExplorationTaskPages(props.taskId)
+    if (!Array.isArray(loadedPages)) {
+      throw new Error('Invalid page evidence response')
+    }
+    pages.value = loadedPages
   } catch {
     pages.value = []
     loadFailed.value = true

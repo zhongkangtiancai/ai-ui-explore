@@ -74,4 +74,14 @@ describe('ExplorationEvidenceBrowser', () => {
     expect(wrapper.text()).toContain('采集不完整')
     expect(download).toHaveBeenCalledWith('task-1')
   })
+
+  it('shows a safe read error when the page-list response is not an array', async () => {
+    fetchPages.mockResolvedValue(undefined)
+    const wrapper = mount(ExplorationEvidenceBrowser, {
+      props: { taskId: 'task-1', taskState: 'completed' },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('明细暂时无法读取')
+  })
 })

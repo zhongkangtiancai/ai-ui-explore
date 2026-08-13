@@ -21,6 +21,10 @@
 - LLM Provider 层统一公网和内网模型差异。
 - 长任务采用异步任务模型，不占用同步 HTTP 请求。
 
+## Sprint 7 证据浏览层
+
+`TaskEvidenceCollector` 在 Runner 的证据 sink 边界即时投影共享 `PageEvidence`，只保留已脱敏的受限模型；任务服务以任务内 `page-N` 提供索引、详情和导出，避免把脱敏 URL 作为唯一键。导出使用 Pydantic Schema 再校验，Vue 仅进行 GET/下载并以文本方式展示 Frame、元素、属性、边界与定位器候选，不渲染原始 HTML。任务终态后证据可在当前进程内读取，但没有持久化或跨进程恢复能力。
+
 ## 当前实现
 
 当前已包含：
