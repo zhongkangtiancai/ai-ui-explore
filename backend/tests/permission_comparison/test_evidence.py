@@ -1,7 +1,11 @@
 """Tests for bounded Snapshot-to-identity evidence projection."""
 
 from ai_ui_explorer.exploration.queue import ExplorationTarget
-from ai_ui_explorer.permission_comparison.evidence import IdentityEvidenceCollector
+from ai_ui_explorer.permission_comparison.evidence import (
+    IdentityEvidenceCollector,
+    project_snapshot,
+)
+from ai_ui_explorer.snapshot.redaction import Redactor
 from tests.snapshot.factories import (
     make_element,
     make_frame,
@@ -78,3 +82,58 @@ def test_evidence_collector_projects_only_redacted_snapshot_fields() -> None:
     assert element.attributes["data-note"] != "password=attribute-secret"
     assert len(element.locator_hints) == 1
     assert element.evidence_refs[0].json_pointer == "/frames/0/elements/0"
+
+
+def test_projection_includes_bounded_locator_details_and_bounds() -> None:
+    snapshot = make_snapshot(
+        frames=[
+            make_frame(
+                elements=[
+                    make_element(
+                        element_id="admin-link",
+                        visible=True,
+                        enabled=False,
+                    )
+                ]
+            )
+        ],
+        locator_candidates=[
+            make_locator_candidate(
+                element_ref="admin-link",
+                frame_ref="main",
+                parameters={"role": "link", "name": "token=locator-secret", "exact": True},
+                uniqueness="unique",
+                stability="high",
+                confidence=1.0,
+                recommended=True,
+            )
+        ],
+        statistics={
+            "frame_count": 1,
+            "completed_frame_count": 1,
+            "failed_frame_count": 0,
+            "element_count": 1,
+            "scroll_container_count": 0,
+            "redaction_count": 0,
+            "redaction_categories": [],
+            "locator_candidate_count": 1,
+            "duration_ms": 1,
+        },
+    )
+
+    page = project_snapshot(target=_target(), snapshot=snapshot, redactor=Redactor())
+    element = page.elements[0]
+    candidate = element.locator_candidates[0]
+
+    assert element.visible is True
+    assert element.enabled is False
+    assert element.bounds is not None
+    assert element.bounds.width == 100
+    assert candidate.strategy == "role"
+    assert candidate.parameters["name"] != "token=locator-secret"
+    assert candidate.recommended is True
+    assert candidate.uniqueness == "unique"
+    assert candidate.stability == "high"
+    assert candidate.confidence == 1.0
+    assert candidate.frame_path == "main"
+    assert candidate.evidence_refs[0].json_pointer == "/locator_candidates/0"

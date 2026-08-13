@@ -8,10 +8,12 @@ from ai_ui_explorer.exploration.queue import ExplorationTarget
 from ai_ui_explorer.exploration.runner import ExplorationRunResult
 from ai_ui_explorer.knowledge.ids import canonical_json, stable_id
 from ai_ui_explorer.permission_comparison.models import (
+    BoundsEvidence,
     ElementEvidence,
     EvidenceReference,
     IdentityEvidenceBundle,
     IdentityRunState,
+    LocatorCandidateEvidence,
     PageEvidence,
 )
 from ai_ui_explorer.snapshot.models import SnapshotDocument
@@ -31,23 +33,7 @@ class IdentityEvidenceCollector:
 
     def record(self, target: ExplorationTarget, snapshot: SnapshotDocument) -> None:
         """Project a validated, already-redacted Snapshot into bounded evidence."""
-        snapshot_sha256 = _snapshot_sha256(snapshot)
-        self._pages.append(
-            PageEvidence(
-                page_key=self._redactor.redact_url(target.url).value,
-                elements=_elements(snapshot, snapshot_sha256, self._redactor),
-                evidence_refs=[
-                    _reference(
-                        snapshot=snapshot,
-                        snapshot_sha256=snapshot_sha256,
-                        pointer="/source/final_url",
-                        excerpt=self._redactor.redact_url(
-                            snapshot.source.final_url
-                        ).value,
-                    )
-                ],
-            )
-        )
+        self._pages.append(project_snapshot(target, snapshot, self._redactor))
 
     def complete(self, _result: ExplorationRunResult) -> None:
         """Satisfy the Runner sink protocol without retaining run internals."""
@@ -60,23 +46,57 @@ class IdentityEvidenceCollector:
         )
 
 
+def project_snapshot(
+    target: ExplorationTarget,
+    snapshot: SnapshotDocument,
+    redactor: Redactor,
+) -> PageEvidence:
+    """Project one Snapshot without retaining it or any browser state."""
+    snapshot_sha256 = _snapshot_sha256(snapshot)
+    return PageEvidence(
+        page_key=redactor.redact_url(target.url).value,
+        elements=_elements(snapshot, snapshot_sha256, redactor),
+        evidence_refs=[
+            _reference(
+                snapshot=snapshot,
+                snapshot_sha256=snapshot_sha256,
+                pointer="/source/final_url",
+                excerpt=redactor.redact_url(snapshot.source.final_url).value,
+            )
+        ],
+    )
+
+
 def _elements(
     snapshot: SnapshotDocument,
     snapshot_sha256: str,
     redactor: Redactor,
 ) -> list[ElementEvidence]:
-    locators_by_element: dict[tuple[str, str], list[str]] = {}
-    for candidate in snapshot.locator_candidates:
+    locators_by_element: dict[
+        tuple[str, str], list[LocatorCandidateEvidence]
+    ] = {}
+    for candidate_index, candidate in enumerate(snapshot.locator_candidates):
         locators_by_element.setdefault(
             (candidate.frame_ref, candidate.element_ref),
             [],
-        ).append(candidate.locator_id)
+        ).append(
+            _locator_candidate(
+                snapshot=snapshot,
+                snapshot_sha256=snapshot_sha256,
+                candidate_index=candidate_index,
+                redactor=redactor,
+            )
+        )
 
     evidence: list[ElementEvidence] = []
     for frame_index, frame in enumerate(snapshot.frames):
         frame_path = _frame_path(snapshot, frame.frame_id)
         for element_index, element in enumerate(frame.elements):
             pointer = f"/frames/{frame_index}/elements/{element_index}"
+            locator_candidates = locators_by_element.get(
+                (frame.frame_id, element.element_id),
+                [],
+            )
             evidence.append(
                 ElementEvidence(
                     element_key=f"{frame.frame_id}:{element.element_id}",
@@ -98,12 +118,22 @@ def _elements(
                         if element.href is not None
                         else None
                     ),
-                    locator_hints=sorted(
-                        locators_by_element.get(
-                            (frame.frame_id, element.element_id),
-                            [],
+                    visible=element.visible,
+                    enabled=element.enabled,
+                    bounds=(
+                        BoundsEvidence(
+                            x=element.bounds.x,
+                            y=element.bounds.y,
+                            width=element.bounds.width,
+                            height=element.bounds.height,
                         )
+                        if element.bounds is not None
+                        else None
                     ),
+                    locator_hints=[
+                        candidate.locator_id for candidate in locator_candidates
+                    ],
+                    locator_candidates=locator_candidates,
                     evidence_refs=[
                         _reference(
                             snapshot=snapshot,
@@ -119,6 +149,47 @@ def _elements(
                 )
             )
     return evidence
+
+
+def _locator_candidate(
+    *,
+    snapshot: SnapshotDocument,
+    snapshot_sha256: str,
+    candidate_index: int,
+    redactor: Redactor,
+) -> LocatorCandidateEvidence:
+    candidate = snapshot.locator_candidates[candidate_index]
+    return LocatorCandidateEvidence(
+        locator_id=candidate.locator_id,
+        strategy=candidate.strategy,
+        parameters={
+            key: (
+                redactor.redact_text(value).value
+                if isinstance(value, str)
+                else value
+            )
+            for key, value in candidate.parameters.items()
+        },
+        source=candidate.source,
+        uniqueness=candidate.uniqueness,
+        stability=candidate.stability,
+        confidence=candidate.confidence,
+        rank=candidate.rank,
+        recommended=candidate.recommended,
+        limitations=[
+            redactor.redact_text(limitation).value
+            for limitation in candidate.limitations
+        ],
+        frame_path=_frame_path(snapshot, candidate.frame_ref),
+        evidence_refs=[
+            _reference(
+                snapshot=snapshot,
+                snapshot_sha256=snapshot_sha256,
+                pointer=f"/locator_candidates/{candidate_index}",
+                excerpt=candidate.locator_id,
+            )
+        ],
+    )
 
 
 def _snapshot_sha256(snapshot: SnapshotDocument) -> str:

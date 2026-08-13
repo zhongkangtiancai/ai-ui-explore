@@ -1,5 +1,37 @@
 {
   "$defs": {
+    "BoundsEvidence": {
+      "additionalProperties": false,
+      "description": "A bounded layout observation, not a browser interaction coordinate.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "width": {
+          "minimum": 0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "minimum": 0,
+          "title": "Height",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "BoundsEvidence",
+      "type": "object"
+    },
     "DifferenceKind": {
       "enum": [
         "observed_in_only_one_identity",
@@ -102,12 +134,55 @@
           "default": null,
           "title": "Href"
         },
+        "visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visible"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "bounds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundsEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "locator_hints": {
           "items": {
             "type": "string"
           },
           "maxItems": 12,
           "title": "Locator Hints",
+          "type": "array"
+        },
+        "locator_candidates": {
+          "items": {
+            "$ref": "#/$defs/LocatorCandidateEvidence"
+          },
+          "maxItems": 12,
+          "title": "Locator Candidates",
           "type": "array"
         },
         "evidence_refs": {
@@ -230,6 +305,138 @@
       ],
       "title": "IdentityRunState",
       "type": "string"
+    },
+    "LocatorCandidateEvidence": {
+      "additionalProperties": false,
+      "description": "One allowlisted locator candidate from an already-redacted Snapshot.",
+      "properties": {
+        "locator_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Locator Id",
+          "type": "string"
+        },
+        "strategy": {
+          "enum": [
+            "role",
+            "label",
+            "text",
+            "placeholder",
+            "alt",
+            "title",
+            "testid",
+            "id",
+            "name",
+            "aria",
+            "css",
+            "xpath",
+            "position"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "maxProperties": 8,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "source": {
+          "enum": [
+            "observed",
+            "generated"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "uniqueness": {
+          "enum": [
+            "unique",
+            "multiple",
+            "unverified"
+          ],
+          "title": "Uniqueness",
+          "type": "string"
+        },
+        "stability": {
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unknown"
+          ],
+          "title": "Stability",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "rank": {
+          "minimum": 1,
+          "title": "Rank",
+          "type": "integer"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "frame_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Frame Path",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "locator_id",
+        "strategy",
+        "parameters",
+        "source",
+        "uniqueness",
+        "stability",
+        "confidence",
+        "rank",
+        "recommended",
+        "frame_path",
+        "evidence_refs"
+      ],
+      "title": "LocatorCandidateEvidence",
+      "type": "object"
     },
     "ObservationState": {
       "enum": [

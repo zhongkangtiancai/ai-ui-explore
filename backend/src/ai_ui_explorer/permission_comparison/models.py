@@ -104,6 +104,46 @@ class EvidenceReference(DeepFrozenModel):
         return value
 
 
+class BoundsEvidence(DeepFrozenModel):
+    """A bounded layout observation, not a browser interaction coordinate."""
+
+    x: float
+    y: float
+    width: float = Field(ge=0)
+    height: float = Field(ge=0)
+
+
+class LocatorCandidateEvidence(DeepFrozenModel):
+    """One allowlisted locator candidate from an already-redacted Snapshot."""
+
+    locator_id: str = Field(min_length=1, max_length=120)
+    strategy: Literal[
+        "role",
+        "label",
+        "text",
+        "placeholder",
+        "alt",
+        "title",
+        "testid",
+        "id",
+        "name",
+        "aria",
+        "css",
+        "xpath",
+        "position",
+    ]
+    parameters: dict[str, str | bool | int | float] = Field(max_length=8)
+    source: Literal["observed", "generated"]
+    uniqueness: Literal["unique", "multiple", "unverified"]
+    stability: Literal["high", "medium", "low", "unknown"]
+    confidence: float = Field(ge=0, le=1)
+    rank: int = Field(ge=1)
+    recommended: bool
+    limitations: list[str] = Field(default_factory=list, max_length=20)
+    frame_path: str = Field(min_length=1, max_length=500)
+    evidence_refs: list[EvidenceReference] = Field(min_length=1, max_length=2)
+
+
 class ElementEvidence(DeepFrozenModel):
     element_key: str = Field(min_length=1, max_length=300)
     frame_path: str = Field(min_length=1, max_length=500)
@@ -113,7 +153,14 @@ class ElementEvidence(DeepFrozenModel):
     text: str | None = Field(default=None, max_length=500)
     attributes: dict[str, str] = Field(default_factory=dict, max_length=32)
     href: str | None = Field(default=None, max_length=2_048)
+    visible: bool | None = None
+    enabled: bool | None = None
+    bounds: BoundsEvidence | None = None
     locator_hints: list[str] = Field(default_factory=list, max_length=12)
+    locator_candidates: list[LocatorCandidateEvidence] = Field(
+        default_factory=list,
+        max_length=12,
+    )
     evidence_refs: list[EvidenceReference] = Field(min_length=1, max_length=12)
 
 
