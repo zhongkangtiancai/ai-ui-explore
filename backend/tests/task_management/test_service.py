@@ -334,6 +334,48 @@ def test_service_passes_optional_evidence_sink_to_internal_runner() -> None:
     assert evidence_sink.bundle(state="completed").pages
 
 
+def test_service_keeps_task_local_evidence_without_exposing_runtime_objects() -> None:
+    def collector_factory(_context: object) -> SnapshotCollectorAdapter:
+        return SnapshotCollectorAdapter(
+            collector=SnapshotCollector(source=FakeSource.with_text("Visible page text")),
+            limits=SnapshotLimits(),
+        )
+
+    def runner_factory(
+        context: object,
+        policy: object,
+        budget: ExplorationBudget,
+        collector: object,
+        cancellation_token: ExplorationCancellationToken,
+    ) -> ExplorationRunner:
+        return context.create_runner(  # type: ignore[attr-defined]
+            policy=policy,
+            budget=budget,
+            collector=collector,
+            cancellation_token=cancellation_token,
+        )
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=runner_factory,
+        collector_factory=collector_factory,
+    )
+    task = service.create(_command(with_login=False))
+
+    _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
+    pages = service.pages(task.task_id)
+    assert pages is not None
+    assert [page.page_id for page in pages] == ["page-1"]
+    detail = service.page_detail(task.task_id, "page-1")
+    assert detail is not None
+    assert "browser" not in detail.model_dump_json().lower()
+    exported = service.export(task.task_id)
+    assert exported is not None
+    assert exported.pages[0].page_id == "page-1"
+    assert "snapshotdocument" not in exported.model_dump_json().lower()
+
+
 def test_service_summarizes_only_safe_counts_from_runner_visits() -> None:
     class CountingRunner:
         def run(self, *, modules: list[ModuleEntry]) -> _CountingRunResult:

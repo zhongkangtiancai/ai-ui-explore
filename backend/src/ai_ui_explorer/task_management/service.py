@@ -28,8 +28,14 @@ from ai_ui_explorer.exploration.runner import (
 )
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskError
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
+from ai_ui_explorer.permission_comparison.models import PageEvidence
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.models import SnapshotLimits
+from ai_ui_explorer.task_management.evidence import (
+    ExplorationEvidenceExport,
+    TaskEvidenceCollector,
+    TaskPageView,
+)
 from ai_ui_explorer.task_management.models import (
     ManagedTask,
     TaskEventView,
@@ -95,6 +101,7 @@ class _TaskExecution:
     policy: NavigationPolicy
     cancellation_token: ExplorationCancellationToken
     context: _TaskRuntimeContext
+    evidence_collector: TaskEvidenceCollector
     runtime: _LoginRuntime | None = None
     startup_ready: Event = field(default_factory=Event)
     confirmation_requested: Event = field(default_factory=Event)
@@ -243,12 +250,14 @@ class ExplorationTaskService:
                 redaction_count=0,
             )
         )
-        context = _TaskRuntimeContext(managed, evidence_sink=evidence_sink)
+        task_evidence = TaskEvidenceCollector(downstream=evidence_sink)
+        context = _TaskRuntimeContext(managed, evidence_sink=task_evidence)
         execution = _TaskExecution(
             command=command,
             policy=policy,
             cancellation_token=ExplorationCancellationToken(),
             context=context,
+            evidence_collector=task_evidence,
             on_terminal=on_terminal,
         )
         with self._lock:
@@ -313,6 +322,7 @@ class ExplorationTaskService:
                 return current_summary
             raise TaskServiceError("Task cannot be cancelled.")
         execution = self._execution_for(task_id)
+        runtime = execution.runtime if execution is not None else None
         if execution is not None:
             execution.cancellation_token.cancel()
             execution.confirmation_requested.set()
@@ -321,7 +331,7 @@ class ExplorationTaskService:
         except ExplorationTaskError:
             raise TaskServiceError("Task cannot be cancelled.") from None
         managed.set_phase("cancelled")
-        if execution is not None and execution.runtime is not None:
+        if execution is not None and runtime is not None:
             execution.runtime_closed.wait(timeout=5)
         return managed.summary()
 
@@ -329,6 +339,28 @@ class ExplorationTaskService:
         """Return only the stored redacted result summary."""
         summary = self.get(task_id)
         return summary.result if summary is not None else None
+
+    def pages(self, task_id: str) -> list[TaskPageView] | None:
+        """Return process-local page indexes without Snapshot or runtime handles."""
+        execution = self._execution_for(task_id)
+        return execution.evidence_collector.pages() if execution is not None else None
+
+    def page_detail(self, task_id: str, page_id: str) -> PageEvidence | None:
+        """Return one already-redacted page evidence record."""
+        execution = self._execution_for(task_id)
+        return execution.evidence_collector.page_detail(page_id) if execution is not None else None
+
+    def export(self, task_id: str) -> ExplorationEvidenceExport | None:
+        """Build a schema-valid, process-local export from bounded projections."""
+        summary = self.get(task_id)
+        execution = self._execution_for(task_id)
+        if summary is None or execution is None:
+            return None
+        return execution.evidence_collector.export(
+            task_id=summary.task_id,
+            state=summary.state,
+            result=summary.result,
+        )
 
     def _start_login_task(
         self,
@@ -565,7 +597,9 @@ class ExplorationTaskService:
     def _release_runtime(self, task_id: str) -> None:
         self._registry.remove_runtime(task_id)
         with self._lock:
-            self._executions.pop(task_id, None)
+            execution = self._executions.get(task_id)
+            if execution is not None:
+                execution.runtime = None
 
     def _notify_terminal(
         self,
