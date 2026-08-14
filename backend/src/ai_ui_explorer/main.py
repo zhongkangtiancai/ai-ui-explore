@@ -16,6 +16,7 @@ from ai_ui_explorer.exploration.runner import (
     ExplorationCancellationToken,
     ExplorationRunner,
 )
+from ai_ui_explorer.exploration_knowledge.service import ExplorationKnowledgeExportService
 from ai_ui_explorer.permission_comparison.service import PermissionComparisonService
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession, PlaywrightBrowserSource
 from ai_ui_explorer.snapshot.collector import SnapshotCollector
@@ -39,8 +40,13 @@ def create_app() -> FastAPI:
     )
     task_service = _create_task_service()
     app.state.exploration_task_service = task_service
-    app.state.permission_comparison_service = PermissionComparisonService(
+    comparison_service = PermissionComparisonService(
         task_service=task_service
+    )
+    app.state.permission_comparison_service = comparison_service
+    app.state.exploration_knowledge_export_service = ExplorationKnowledgeExportService(
+        task_service=task_service,
+        comparison_service=comparison_service,
     )
     app.include_router(api_router)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal, Protocol, Self
 
 from pydantic import Field, model_validator
@@ -14,6 +15,8 @@ from ai_ui_explorer.exploration_knowledge.models import (
     TaskKnowledgeSource,
 )
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
+from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
+from ai_ui_explorer.task_management.models import TaskSummary
 
 
 class ExplorationKnowledgeExportError(RuntimeError):
@@ -47,7 +50,7 @@ class ExplorationKnowledgeExportRequest(DeepFrozenModel):
 
 
 class _TaskSourceService(Protocol):
-    def list_summaries(self) -> list[object]:
+    def list_summaries(self) -> Sequence[TaskSummary]:
         """Return safe public task views."""
 
     def knowledge_source(self, task_id: str) -> TaskKnowledgeSource | None:
@@ -55,7 +58,7 @@ class _TaskSourceService(Protocol):
 
 
 class _ComparisonSourceService(Protocol):
-    def list_views(self) -> list[object]:
+    def list_views(self) -> Sequence[PermissionComparisonView]:
         """Return safe public comparison views."""
 
     def knowledge_source(
