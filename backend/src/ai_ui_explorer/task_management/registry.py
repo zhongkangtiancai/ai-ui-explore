@@ -2,7 +2,7 @@
 
 from threading import RLock
 
-from ai_ui_explorer.task_management.models import ManagedTask
+from ai_ui_explorer.task_management.models import ManagedTask, TaskSummary
 
 
 class ExplorationTaskRegistry:
@@ -24,6 +24,14 @@ class ExplorationTaskRegistry:
         """Return an in-process task handle when it is still registered."""
         with self._lock:
             return self._tasks.get(task_id)
+
+    def list_summaries(self) -> list[TaskSummary]:
+        """Return copied public summaries in stable public-ID order."""
+        with self._lock:
+            return [
+                self._tasks[task_id].summary()
+                for task_id in sorted(self._tasks)
+            ]
 
     def remove_runtime(self, task_id: str) -> None:
         """Release private runtime resources without deleting task metadata."""

@@ -10,6 +10,7 @@ from typing import Protocol
 from pydantic import Field, model_validator
 
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
+from ai_ui_explorer.exploration_knowledge.models import ComparisonKnowledgeSource
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.permission_comparison.comparator import PermissionComparator
 from ai_ui_explorer.permission_comparison.evidence import IdentityEvidenceCollector
@@ -141,6 +142,36 @@ class PermissionComparisonService:
         handle = self._require_handle(comparison_id)
         with handle.lock:
             return _view(comparison_id, handle)
+
+    def list_views(self) -> list[PermissionComparisonView]:
+        """List copied public comparison views in stable public-ID order."""
+        with self._lock:
+            comparison_ids = sorted(self._comparisons)
+        return [self.get(comparison_id) for comparison_id in comparison_ids]
+
+    def knowledge_source(
+        self,
+        comparison_id: str,
+    ) -> ComparisonKnowledgeSource | None:
+        """Return a terminal result projection without task or browser handles."""
+        handle = self._require_handle(comparison_id)
+        with handle.lock:
+            result = handle.result
+            if result is None or handle.state not in {
+                "completed",
+                "partial",
+                "failed",
+                "cancelled",
+            }:
+                return None
+            return ComparisonKnowledgeSource(
+                source_id=comparison_id,
+                result=result.model_copy(deep=True),
+                identity_labels={
+                    identity_id: execution.profile.label
+                    for identity_id, execution in handle.identities.items()
+                },
+            )
 
     def confirm_login(
         self,

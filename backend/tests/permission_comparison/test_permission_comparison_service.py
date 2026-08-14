@@ -206,3 +206,9 @@ def test_failed_identity_keeps_completed_evidence_and_marks_result_partial() -> 
     assert result.status == "partial"
     assert result.identities[0].pages
     assert all(item.reliability == "inconclusive" for item in result.differences)
+
+    source = service.knowledge_source(comparison.comparison_id)
+    assert source is not None
+    assert source.source_id == comparison.comparison_id
+    assert source.identity_labels["identity-1"] == "管理员"
+    assert "authentication_plan" not in source.model_dump_json()

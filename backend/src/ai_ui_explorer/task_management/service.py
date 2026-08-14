@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from threading import Event, RLock, Thread
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from pydantic import Field
 
@@ -27,6 +27,7 @@ from ai_ui_explorer.exploration.runner import (
     SnapshotCollectorPort,
 )
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskError
+from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.permission_comparison.models import PageEvidence
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
@@ -286,6 +287,41 @@ class ExplorationTaskService:
         """Return a safe task summary, or ``None`` after unknown/restarted tasks."""
         managed = self._registry.get(task_id)
         return managed.summary() if managed is not None else None
+
+    def list_summaries(self) -> list[TaskSummary]:
+        """List copied public task summaries without exposing runtime handles."""
+        return self._registry.list_summaries()
+
+    def knowledge_source(self, task_id: str) -> TaskKnowledgeSource | None:
+        """Project one terminal task into bounded, already-redacted evidence."""
+        summary = self.get(task_id)
+        execution = self._execution_for(task_id)
+        if (
+            summary is None
+            or execution is None
+            or str(summary.state) not in _TERMINAL_STATES
+        ):
+            return None
+        evidence_export = execution.evidence_collector.export(
+            task_id=summary.task_id,
+            state=summary.state,
+            result=summary.result,
+        )
+        pages = [
+            page
+            for page_view in execution.evidence_collector.pages()
+            if (page := execution.evidence_collector.page_detail(page_view.page_id))
+            is not None
+        ]
+        return TaskKnowledgeSource(
+            source_id=summary.task_id,
+            state=cast(
+                Literal["completed", "partial", "failed", "cancelled"],
+                str(summary.state),
+            ),
+            pages=pages,
+            reason_codes=list(evidence_export.reason_codes),
+        )
 
     def events(self, task_id: str) -> list[TaskEventView] | None:
         """Return only allowlisted audit event fields."""
