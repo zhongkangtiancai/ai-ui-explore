@@ -25,6 +25,12 @@
 
 `TaskEvidenceCollector` 在 Runner 的证据 sink 边界即时投影共享 `PageEvidence`，只保留已脱敏的受限模型；任务服务以任务内 `page-N` 提供索引、详情和导出，避免把脱敏 URL 作为唯一键。导出使用 Pydantic Schema 再校验，Vue 仅进行 GET/下载并以文本方式展示 Frame、元素、属性、边界与定位器候选，不渲染原始 HTML。任务终态后证据可在当前进程内读取，但没有持久化或跨进程恢复能力。
 
+## Sprint 8 统一知识导出层
+
+`ExplorationKnowledgeExportService` 位于任务/对比服务与 HTTP 层之间。它只调用终态的安全 DTO 投影：任务侧为 `TaskSummary` 与已脱敏 `PageEvidence`，对比侧为 `PermissionComparisonResult` 与可见性差异；不会取得 `ManagedTask`、执行线程、运行时、浏览器或 Collector。纯 `ExplorationKnowledgeBuilder` 负责稳定排序、证据闭包、固定缺口与预算拒绝，FastAPI 在返回附件前再次按 v2 Schema 校验，Vue 仅列出来源 ID、状态和计数并触发下载。
+
+该架构不持久化包或原始证据，JSON Pointer 只能辅助当前进程中的人工核查。来源不存在、不是终态或不再可用时只返回固定安全错误；未知请求字段被拒绝且不会回显。该层不执行动作、不产生 AI 推断，也不证明业务权限或后端数据授权。
+
 ## 当前实现
 
 当前已包含：

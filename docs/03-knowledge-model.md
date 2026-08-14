@@ -20,6 +20,12 @@ Application 身份只来自版本化 Application Manifest。知识包保存：
 Module、Action、Workflow、Identity、Role、Permission、Data Scope、Change History
 等仍是后续知识模型方向，当前不会虚构这些实体。
 
+## Sprint 8：运行时统一探索知识包
+
+`exploration-knowledge-package-v2` 与 Sprint 2 的离线 `knowledge-package-v1` 独立且不互相修改。v2 的来源可以是一个终态探索任务或一个终态权限对比；相同页面键在不同来源或身份下保持独立实体，不会无证据合并。实体 ID、来源排序、页面/元素/证据顺序均由受限输入确定，不使用当前时间、随机 UUID 或浏览器状态。
+
+v2 只把直接观察到的字段写为 Fact，且 Fact、定位器与差异的证据引用必须在同一包内解析。对比不完整时差异可靠性为 `inconclusive`，相应信号以 Observation 或 KnowledgeGap 表达。`inferences` 固定为空；页面可见性不同不等于角色权限、业务授权或后端数据范围不同。包只在 HTTP 响应中生成，达到来源、页面、元素、差异、证据或 10 MiB 预算会固定拒绝，不做静默截断。
+
 ## 事实、观察与缺口
 
 Fact 只表达 Snapshot 中可直接观察且有证据的值，必须包含：
