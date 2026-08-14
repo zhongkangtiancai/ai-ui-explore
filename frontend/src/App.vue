@@ -21,6 +21,7 @@ import {
 } from './api/permissionComparisons'
 import ExplorationTaskDetail from './components/ExplorationTaskDetail.vue'
 import ExplorationTaskForm from './components/ExplorationTaskForm.vue'
+import ExplorationKnowledgeExport from './components/ExplorationKnowledgeExport.vue'
 import PermissionComparisonDetail from './components/PermissionComparisonDetail.vue'
 import PermissionComparisonForm from './components/PermissionComparisonForm.vue'
 
@@ -273,6 +274,7 @@ async function handleComparisonDownload(): Promise<void> {
       @cancel="handleComparisonCancel"
       @download="handleComparisonDownload"
     />
+    <ExplorationKnowledgeExport @error="taskError = true" />
   </main>
 </template>
 

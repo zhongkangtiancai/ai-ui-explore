@@ -19,6 +19,11 @@ vi.mock('../src/api/permissionComparisons', () => ({
   fetchPermissionComparison: vi.fn(),
 }))
 
+vi.mock('../src/api/explorationKnowledge', () => ({
+  downloadExplorationKnowledge: vi.fn(),
+  fetchExplorationKnowledgeSources: vi.fn(),
+}))
+
 import App from '../src/App.vue'
 import {
   confirmExplorationTaskLogin,
