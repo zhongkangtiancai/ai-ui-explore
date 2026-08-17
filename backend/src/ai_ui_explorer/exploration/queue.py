@@ -19,6 +19,8 @@ class ExplorationBudget(DeepFrozenModel):
     max_pages: int = Field(default=20, ge=1, le=1_000)
     max_depth: int = Field(default=2, ge=0, le=20)
     max_queue_size: int = Field(default=100, ge=1, le=10_000)
+    max_interaction_steps: int = Field(default=20, ge=0, le=1_000)
+    max_interactions_per_page: int = Field(default=5, ge=0, le=100)
 
 
 class ModuleEntry(DeepFrozenModel):

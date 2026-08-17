@@ -9,6 +9,10 @@ from ai_ui_explorer.exploration.collector_adapter import (
     SessionSnapshotCollectorAdapter,
     SnapshotCollectorAdapter,
 )
+from ai_ui_explorer.exploration.interactions import (
+    ReadonlyInteractionCandidate,
+    ReadonlyInteractionExecution,
+)
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry, NavigationCandidate
 from ai_ui_explorer.exploration.runner import (
@@ -18,6 +22,7 @@ from ai_ui_explorer.exploration.runner import (
     SnapshotCollectorPort,
 )
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskState
+from ai_ui_explorer.permission_comparison.models import EvidenceReference, LocatorCandidateEvidence
 from ai_ui_explorer.snapshot.browser import (
     PlaywrightBrowserSession,
     PlaywrightBrowserSource,
@@ -25,6 +30,7 @@ from ai_ui_explorer.snapshot.browser import (
 )
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotDocument, SnapshotLimits
+from ai_ui_explorer.task_management.evidence import TaskEvidenceCollector
 from tests.snapshot.factories import make_element, make_frame, make_snapshot
 from tests.snapshot.fakes import FakeSource
 
@@ -67,6 +73,37 @@ class _MaliciousTaskBindingCollector(SnapshotCollectorPort):
 class _FailingObservationSource:
     def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
         raise RuntimeError("synthetic collector failure with token=secret")
+
+
+def _readonly_candidate() -> ReadonlyInteractionCandidate:
+    return ReadonlyInteractionCandidate(
+        kind="switch_tab",
+        element_key="details-tab",
+        frame_path="main",
+        target_summary="详情",
+        locator=LocatorCandidateEvidence(
+            locator_id="details-tab",
+            strategy="css",
+            parameters={"selector": "#details-tab"},
+            source="generated",
+            uniqueness="unique",
+            stability="high",
+            confidence=1.0,
+            rank=1,
+            recommended=True,
+            frame_path="main",
+            evidence_refs=[
+                EvidenceReference(
+                    evidence_id="evidence-details-tab",
+                    snapshot_id="snapshot-1",
+                    snapshot_schema_version="1.1",
+                    snapshot_sha256="a" * 64,
+                    json_pointer="/frames/0",
+                    excerpt="safe",
+                )
+            ],
+        ),
+    )
 
 
 def _task_bound_collector(
@@ -126,6 +163,233 @@ def test_runner_collects_seed_and_readonly_candidate_until_queue_empty() -> None
     assert collector.collected_urls == [root_url, detail_url]
     assert [visit.target.url for visit in result.visits] == [root_url, detail_url]
     assert result.stop_reasons == []
+
+
+def test_exploration_budget_limits_readonly_interaction_steps_separately() -> None:
+    budget = ExplorationBudget(
+        max_pages=2,
+        max_depth=1,
+        max_queue_size=5,
+        max_interaction_steps=3,
+        max_interactions_per_page=2,
+    )
+
+    assert budget.max_interaction_steps == 3
+    assert budget.max_interactions_per_page == 2
+
+
+def test_runner_extracts_interactions_from_redacted_evidence_projection() -> None:
+    root_url = "https://app.example.test/root"
+    collector = FakeCollector(
+        {
+            root_url: make_snapshot(
+                source={"requested_url": root_url, "final_url": root_url, "title": "Root"}
+            )
+        }
+    )
+    evidence = TaskEvidenceCollector()
+    received_page_keys: list[str] = []
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=1, max_depth=0, max_queue_size=1),
+        collector=collector,
+        evidence_sink=evidence,
+        interaction_candidate_extractor=lambda page: received_page_keys.append(page.page_key)
+        or [],
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert result.status == "completed"
+    assert received_page_keys == [root_url]
+
+
+def test_runner_does_not_execute_interactions_when_step_budget_is_zero() -> None:
+    root_url = "https://app.example.test/root"
+    calls: list[ReadonlyInteractionCandidate] = []
+    candidate = ReadonlyInteractionCandidate(
+        kind="switch_tab",
+        element_key="tab",
+        frame_path="main",
+        target_summary="概览",
+        locator=LocatorCandidateEvidence(
+            locator_id="tab",
+            strategy="css",
+            parameters={"selector": "#tab"},
+            source="generated",
+            uniqueness="unique",
+            stability="high",
+            confidence=1.0,
+            rank=1,
+            recommended=True,
+            frame_path="main",
+            evidence_refs=[
+                EvidenceReference(
+                    evidence_id="evidence-tab",
+                    snapshot_id="snapshot-1",
+                    snapshot_schema_version="1.1",
+                    snapshot_sha256="a" * 64,
+                    json_pointer="/frames/0",
+                    excerpt="safe",
+                )
+            ],
+        ),
+    )
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(
+            max_pages=1,
+            max_depth=0,
+            max_queue_size=1,
+            max_interaction_steps=0,
+        ),
+        collector=FakeCollector(
+            {
+                root_url: make_snapshot(
+                    source={
+                        "requested_url": root_url,
+                        "final_url": root_url,
+                        "title": "Root",
+                    }
+                )
+            }
+        ),
+        evidence_sink=TaskEvidenceCollector(),
+        interaction_candidate_extractor=lambda _page: [candidate],
+        interaction_executor=lambda item: (
+            calls.append(item)
+            or ReadonlyInteractionExecution(
+                status="executed",
+                reason_code="executed",
+                safe_message="Interaction executed.",
+                url_before=root_url,
+                url_after=root_url,
+            )
+        ),
+        interaction_snapshot_collector=lambda: make_snapshot(
+            source={"requested_url": root_url, "final_url": root_url, "title": "Root"}
+        ),
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert calls == []
+    assert "interaction_budget_exhausted" in result.stop_reasons
+
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(
+            max_pages=1,
+            max_depth=0,
+            max_queue_size=1,
+            max_interaction_steps=1,
+        ),
+        collector=FakeCollector(
+            {
+                root_url: make_snapshot(
+                    source={
+                        "requested_url": root_url,
+                        "final_url": root_url,
+                        "title": "Root",
+                    }
+                )
+            }
+        ),
+        evidence_sink=TaskEvidenceCollector(),
+        interaction_candidate_extractor=lambda _page: [candidate],
+        interaction_executor=lambda item: (
+            calls.append(item)
+            or ReadonlyInteractionExecution(
+                status="executed",
+                reason_code="executed",
+                safe_message="Interaction executed.",
+                url_before=root_url,
+                url_after=root_url,
+            )
+        ),
+        interaction_snapshot_collector=lambda: make_snapshot(
+            source={"requested_url": root_url, "final_url": root_url, "title": "Root"}
+        ),
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert calls == [candidate]
+    assert "interaction_budget_exhausted" not in result.stop_reasons
+
+
+def test_runner_records_executed_interaction_with_recollected_state() -> None:
+    """Removing either the execution result or re-collection must fail this test."""
+    root_url = "https://app.example.test/root"
+    before_snapshot = make_snapshot(
+        source={"requested_url": root_url, "final_url": root_url, "title": "Overview"}
+    )
+    after_snapshot = make_snapshot(
+        source={"requested_url": root_url, "final_url": root_url, "title": "Details"}
+    )
+    candidate = _readonly_candidate()
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(
+            max_pages=1,
+            max_depth=0,
+            max_queue_size=1,
+            max_interaction_steps=1,
+        ),
+        collector=FakeCollector({root_url: before_snapshot}),
+        evidence_sink=TaskEvidenceCollector(),
+        interaction_candidate_extractor=lambda _page: [candidate],
+        interaction_executor=lambda _candidate: ReadonlyInteractionExecution(
+            status="executed",
+            reason_code="executed",
+            safe_message="Interaction executed.",
+            url_before=root_url,
+            url_after=root_url,
+        ),
+        interaction_snapshot_collector=lambda: after_snapshot,
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert result.status == "completed"
+    assert len(result.interaction_steps) == 1
+    step = result.interaction_steps[0]
+    assert step.execution.status == "executed"
+    assert step.before_state.fingerprint != step.after_state.fingerprint
+    assert len(result.visits) == 2
+
+
+def test_runner_marks_unchanged_post_interaction_state_as_partial() -> None:
+    """Removing post-click state validation would incorrectly report completion."""
+    root_url = "https://app.example.test/root"
+    snapshot = make_snapshot(
+        source={"requested_url": root_url, "final_url": root_url, "title": "Overview"}
+    )
+    runner = ExplorationRunner(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(
+            max_pages=1,
+            max_depth=0,
+            max_queue_size=1,
+            max_interaction_steps=1,
+        ),
+        collector=FakeCollector({root_url: snapshot}),
+        evidence_sink=TaskEvidenceCollector(),
+        interaction_candidate_extractor=lambda _page: [_readonly_candidate()],
+        interaction_executor=lambda _candidate: ReadonlyInteractionExecution(
+            status="executed",
+            reason_code="executed",
+            safe_message="Interaction executed.",
+            url_before=root_url,
+            url_after=root_url,
+        ),
+        interaction_snapshot_collector=lambda: snapshot,
+    )
+
+    result = runner.run(modules=[ModuleEntry(module_id="root", url=root_url)])
+
+    assert result.status == "partial"
+    assert "interaction_state_unchanged" in result.stop_reasons
 
 
 def test_runner_records_successful_snapshots_in_evidence_sink() -> None:

@@ -16,7 +16,19 @@ from ai_ui_explorer.snapshot.models import SnapshotDocument
 from ai_ui_explorer.snapshot.redaction import Redactor
 from ai_ui_explorer.task_management.models import TaskResultSummary
 
-_SAFE_STOP_REASONS = frozenset({"collector_failure", "duplicate_state", "cancelled"})
+_SAFE_STOP_REASONS = frozenset(
+    {
+        "collector_failure",
+        "duplicate_state",
+        "cancelled",
+        "interaction_budget_exhausted",
+        "interaction_denied",
+        "interaction_execution_failed",
+        "interaction_origin_denied",
+        "interaction_collection_failed",
+        "interaction_state_unchanged",
+    }
+)
 
 
 class TaskPageView(DeepFrozenModel):
@@ -61,7 +73,7 @@ class TaskEvidenceCollector(ExplorationEvidenceSink):
         self._reason_codes: list[str] = []
         self._next_page_number = 1
 
-    def record(self, target: ExplorationTarget, snapshot: SnapshotDocument) -> None:
+    def record(self, target: ExplorationTarget, snapshot: SnapshotDocument) -> PageEvidence:
         page = project_snapshot(target=target, snapshot=snapshot, redactor=self._redactor)
         with self._lock:
             page_id = f"page-{self._next_page_number}"
@@ -69,6 +81,7 @@ class TaskEvidenceCollector(ExplorationEvidenceSink):
             self._pages[page_id] = page
         if self._downstream is not None:
             self._downstream.record(target, snapshot)
+        return page
 
     def complete(self, result: ExplorationRunResult) -> None:
         reasons = sorted(set(result.stop_reasons).intersection(_SAFE_STOP_REASONS))

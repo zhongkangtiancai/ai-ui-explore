@@ -73,6 +73,16 @@ class InteractionDecision(DeepFrozenModel):
     safe_message: str = Field(min_length=1)
 
 
+class ReadonlyInteractionExecution(DeepFrozenModel):
+    """Fixed, non-sensitive outcome of one browser interaction attempt."""
+
+    status: Literal["executed", "skipped", "paused", "failed"]
+    reason_code: str = Field(min_length=1)
+    safe_message: str = Field(min_length=1)
+    url_before: str = Field(min_length=1)
+    url_after: str | None = Field(default=None, min_length=1)
+
+
 class ReadonlyInteractionGate:
     """Default-deny policy for candidates already projected from page evidence."""
 

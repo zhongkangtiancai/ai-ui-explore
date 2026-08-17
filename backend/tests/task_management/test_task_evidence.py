@@ -19,7 +19,7 @@ def _target(url: str) -> ExplorationTarget:
 
 def test_task_evidence_collector_keeps_projected_pages_after_partial_run() -> None:
     collector = TaskEvidenceCollector()
-    collector.record(
+    projected = collector.record(
         _target("https://app.example.test/one?token=source-secret"),
         make_snapshot(
             frames=[
@@ -47,6 +47,9 @@ def test_task_evidence_collector_keeps_projected_pages_after_partial_run() -> No
     )
 
     pages = collector.pages()
+    assert projected == collector.page_detail("page-1")
+    assert projected is not None
+    assert not hasattr(projected, "snapshot")
     assert [page.page_id for page in pages] == ["page-1"]
     assert pages[0].page_key != "https://app.example.test/one?token=source-secret"
     assert pages[0].frame_count == 1
@@ -83,3 +86,21 @@ def test_task_evidence_detail_and_export_do_not_expose_snapshot_or_browser() -> 
     assert "fixture-secret" not in payload
     assert "snapshotdocument" not in payload
     assert "browser" not in payload
+
+
+def test_task_evidence_export_keeps_fixed_readonly_interaction_stop_reason() -> None:
+    """Dropping this reason would hide a bounded, incomplete task outcome."""
+    collector = TaskEvidenceCollector()
+    collector.complete(
+        ExplorationRunResult(
+            status="partial",
+            visits=[],
+            enqueue_decisions=[],
+            errors=[],
+            stop_reasons=["interaction_budget_exhausted"],
+        )
+    )
+
+    exported = collector.export(task_id="task-1", state="partial")
+
+    assert exported.reason_codes == ["interaction_budget_exhausted"]

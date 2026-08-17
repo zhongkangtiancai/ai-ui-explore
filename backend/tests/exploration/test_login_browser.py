@@ -21,6 +21,11 @@ from ai_ui_explorer.exploration import (
 from ai_ui_explorer.exploration.collector_adapter import (
     SessionSnapshotCollectorAdapter,
 )
+from ai_ui_explorer.exploration.interactions import ReadonlyInteractionCandidate
+from ai_ui_explorer.permission_comparison.models import (
+    EvidenceReference,
+    LocatorCandidateEvidence,
+)
 from ai_ui_explorer.snapshot.browser import (
     PlaywrightBrowserSession,
     RawPageObservation,
@@ -284,6 +289,41 @@ def test_browser_session_reports_current_page_and_css_presence(login_site: Login
         session.close()
 
 
+def test_browser_session_executes_only_unique_readonly_locator(login_site: LoginSite) -> None:
+    session = PlaywrightBrowserSession.open(headless=True)
+    try:
+        session.goto(login_site.login_url)
+        _fixture_page(session).locator("#fixture-login").click()
+
+        execution = session.execute_readonly_interaction(
+            ReadonlyInteractionCandidate(
+                kind="switch_tab",
+                element_key="signed-in-marker",
+                frame_path="main",
+                locator=LocatorCandidateEvidence(
+                    locator_id="marker",
+                    strategy="id",
+                    parameters={"value": "signed-in-marker"},
+                    source="generated",
+                    uniqueness="unique",
+                    stability="high",
+                    confidence=0.95,
+                    rank=1,
+                    recommended=True,
+                    frame_path="main",
+                    evidence_refs=[_evidence_reference()],
+                ),
+                target_summary="已登录标识",
+            )
+        )
+
+        assert execution.status == "executed"
+        assert execution.url_before == login_site.dashboard_url
+        assert execution.url_after == login_site.dashboard_url
+    finally:
+        session.close()
+
+
 def test_session_collection_reuses_the_existing_page(login_site: LoginSite) -> None:
     session = PlaywrightBrowserSession.open(headless=True)
     try:
@@ -324,9 +364,41 @@ def test_session_snapshot_does_not_expose_fixture_authentication_marker(
     assert fixture_marker not in snapshot.model_dump_json()
 
 
+def test_session_adapter_collects_current_page_without_reloading_login(
+    login_site: LoginSite,
+) -> None:
+    session = PlaywrightBrowserSession.open(headless=True)
+    try:
+        session.goto(login_site.login_url)
+        _fixture_page(session).locator("#fixture-login").click()
+        adapter = SessionSnapshotCollectorAdapter(
+            session=session,
+            task=ExplorationTask.create(task_id="fixture-current-page"),
+            limits=SnapshotLimits(),
+        )
+
+        snapshot = adapter.collect_current()
+
+        assert snapshot.source.final_url == login_site.dashboard_url
+        assert session.current_url == login_site.dashboard_url
+    finally:
+        session.close()
+
+
 class _FailingObservationSource:
     def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
         raise RuntimeError("unsafe upstream detail")
+
+
+def _evidence_reference() -> EvidenceReference:
+    return EvidenceReference(
+        evidence_id="evidence-marker",
+        snapshot_id="snapshot-1",
+        snapshot_schema_version="1.1",
+        snapshot_sha256="a" * 64,
+        json_pointer="/frames/0",
+        excerpt="safe marker",
+    )
 
 
 class _ClosingResource:

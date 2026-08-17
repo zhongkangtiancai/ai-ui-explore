@@ -17,6 +17,9 @@ from ai_ui_explorer.exploration.collector_adapter import (
     SessionSnapshotCollectorAdapter,
     SnapshotCollectorAdapter,
 )
+from ai_ui_explorer.exploration.interactions import (
+    extract_readonly_interaction_candidates,
+)
 from ai_ui_explorer.exploration.login_runtime import HumanLoginSession
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
@@ -203,6 +206,15 @@ class _TaskRuntimeContext:
                 policy=policy,
                 budget=budget,
                 collector=cast(SnapshotCollectorPort, collector),
+                interaction_candidate_extractor=extract_readonly_interaction_candidates,
+                interaction_executor=cast(
+                    SessionSnapshotCollectorAdapter,
+                    collector,
+                ).execute_readonly_interaction,
+                interaction_snapshot_collector=cast(
+                    SessionSnapshotCollectorAdapter,
+                    collector,
+                ).collect_current,
                 task=task,
                 cancellation_token=cancellation_token,
                 evidence_sink=self._evidence_sink,
@@ -296,11 +308,7 @@ class ExplorationTaskService:
         """Project one terminal task into bounded, already-redacted evidence."""
         summary = self.get(task_id)
         execution = self._execution_for(task_id)
-        if (
-            summary is None
-            or execution is None
-            or str(summary.state) not in _TERMINAL_STATES
-        ):
+        if summary is None or execution is None or str(summary.state) not in _TERMINAL_STATES:
             return None
         evidence_export = execution.evidence_collector.export(
             task_id=summary.task_id,
@@ -310,8 +318,7 @@ class ExplorationTaskService:
         pages = [
             page
             for page_view in execution.evidence_collector.pages()
-            if (page := execution.evidence_collector.page_detail(page_view.page_id))
-            is not None
+            if (page := execution.evidence_collector.page_detail(page_view.page_id)) is not None
         ]
         return TaskKnowledgeSource(
             source_id=summary.task_id,
@@ -549,10 +556,14 @@ class ExplorationTaskService:
 
     def _record_run_result(self, managed: ManagedTask, result: object) -> None:
         visits = getattr(result, "visits", None)
-        visit_count = len(visits) if isinstance(visits, Sequence) else getattr(
-            result,
-            "visit_count",
-            0,
+        visit_count = (
+            len(visits)
+            if isinstance(visits, Sequence)
+            else getattr(
+                result,
+                "visit_count",
+                0,
+            )
         )
         if not isinstance(visit_count, int) or visit_count < 0:
             visit_count = 0
