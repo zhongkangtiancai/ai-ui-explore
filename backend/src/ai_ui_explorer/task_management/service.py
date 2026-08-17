@@ -30,6 +30,7 @@ from ai_ui_explorer.exploration.runner import (
     SnapshotCollectorPort,
 )
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskError
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
 from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.permission_comparison.models import PageEvidence
@@ -403,6 +404,17 @@ class ExplorationTaskService:
             task_id=summary.task_id,
             state=summary.state,
             result=summary.result,
+        )
+
+    def workflow(self, task_id: str) -> TaskWorkflowExport | None:
+        """Return a terminal task's process-local readonly workflow projection."""
+        summary = self.get(task_id)
+        execution = self._execution_for(task_id)
+        if summary is None or execution is None or str(summary.state) not in _TERMINAL_STATES:
+            return None
+        return execution.evidence_collector.workflow(
+            task_id=summary.task_id,
+            state=summary.state,
         )
 
     def _start_login_task(

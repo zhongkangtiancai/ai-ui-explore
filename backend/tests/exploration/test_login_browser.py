@@ -299,7 +299,7 @@ def test_browser_session_executes_only_unique_readonly_locator(login_site: Login
             ReadonlyInteractionCandidate(
                 kind="switch_tab",
                 element_key="signed-in-marker",
-                frame_path="main",
+                frame_path="frame-0",
                 locator=LocatorCandidateEvidence(
                     locator_id="marker",
                     strategy="id",
@@ -310,7 +310,7 @@ def test_browser_session_executes_only_unique_readonly_locator(login_site: Login
                     confidence=0.95,
                     rank=1,
                     recommended=True,
-                    frame_path="main",
+                    frame_path="frame-0",
                     evidence_refs=[_evidence_reference()],
                 ),
                 target_summary="已登录标识",

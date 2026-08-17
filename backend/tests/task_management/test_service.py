@@ -711,7 +711,7 @@ def test_service_resumes_real_bound_login_runtime_after_confirmation(
     service.confirm_login(task.task_id)
 
     _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
-    assert service.result(task.task_id).page_count == 1  # type: ignore[union-attr]
+    assert service.result(task.task_id).page_count == 2  # type: ignore[union-attr]
     assert runtime_closed.wait(timeout=2)
 
 

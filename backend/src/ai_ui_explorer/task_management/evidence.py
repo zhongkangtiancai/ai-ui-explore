@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from threading import RLock
+from typing import Literal, cast
 
 from pydantic import Field, field_validator
 
 from ai_ui_explorer.exploration.queue import ExplorationTarget
-from ai_ui_explorer.exploration.runner import ExplorationEvidenceSink, ExplorationRunResult
+from ai_ui_explorer.exploration.runner import (
+    ExplorationEvidenceSink,
+    ExplorationRunResult,
+    ReadonlyInteractionStep,
+)
 from ai_ui_explorer.exploration.task import ExplorationTaskState
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport, build_task_workflow
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.permission_comparison.evidence import project_snapshot
 from ai_ui_explorer.permission_comparison.models import EvidenceReference, PageEvidence
@@ -71,6 +77,7 @@ class TaskEvidenceCollector(ExplorationEvidenceSink):
         self._downstream = downstream
         self._pages: dict[str, PageEvidence] = {}
         self._reason_codes: list[str] = []
+        self._interaction_steps: list[ReadonlyInteractionStep] = []
         self._next_page_number = 1
 
     def record(self, target: ExplorationTarget, snapshot: SnapshotDocument) -> PageEvidence:
@@ -87,6 +94,7 @@ class TaskEvidenceCollector(ExplorationEvidenceSink):
         reasons = sorted(set(result.stop_reasons).intersection(_SAFE_STOP_REASONS))
         with self._lock:
             self._reason_codes = reasons
+            self._interaction_steps = list(result.interaction_steps)
         if self._downstream is not None:
             self._downstream.complete(result)
 
@@ -122,6 +130,22 @@ class TaskEvidenceCollector(ExplorationEvidenceSink):
             )
         export.model_json_schema()
         return export
+
+    def workflow(
+        self,
+        *,
+        task_id: str,
+        state: ExplorationTaskState,
+    ) -> TaskWorkflowExport:
+        with self._lock:
+            return build_task_workflow(
+                task_id=task_id,
+                state=cast(
+                    Literal["completed", "partial", "failed", "cancelled"],
+                    state,
+                ),
+                steps=list(self._interaction_steps),
+            )
 
 
 def _page_view(

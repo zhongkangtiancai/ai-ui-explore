@@ -18,6 +18,7 @@ from ai_ui_explorer.exploration.runner import (
     ExplorationCancellationToken,
     ExplorationRunner,
 )
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
 from ai_ui_explorer.main import create_app
 from ai_ui_explorer.permission_comparison.evidence import project_snapshot
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
@@ -105,6 +106,17 @@ class _FakeTaskService:
             state="completed",
             result=self.summary.result,
             pages=[_page_view()],
+        )
+
+    def workflow(self, task_id: str) -> TaskWorkflowExport | None:
+        if self.get(task_id) is None:
+            return None
+        return TaskWorkflowExport(
+            task_id=task_id,
+            state="completed",
+            steps=[],
+            nodes=[],
+            edges=[],
         )
 
 
@@ -250,11 +262,26 @@ def test_pages_detail_and_export_are_safe_and_schema_valid(client: TestClient) -
 
     exported = client.get("/api/v1/exploration-tasks/task-1/export")
     assert exported.headers["content-type"].startswith("application/json")
-    assert "attachment; filename=exploration-evidence.json" in exported.headers[
-        "content-disposition"
-    ]
+    assert (
+        "attachment; filename=exploration-evidence.json" in exported.headers["content-disposition"]
+    )
     assert "password" not in exported.text.lower()
     assert "cookie" not in exported.text.lower()
+
+
+def test_workflow_endpoint_returns_only_the_readonly_workflow_projection(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/exploration-tasks/task-1/workflow")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": "task-1",
+        "state": "completed",
+        "steps": [],
+        "nodes": [],
+        "edges": [],
+    }
 
 
 def test_unknown_task_and_page_use_fixed_safe_errors(client: TestClient) -> None:
@@ -307,9 +334,7 @@ def test_local_login_task_completes_after_confirmation(login_site: LoginSite) ->
         paused = _wait_for_task_state(local_client, task_id, "paused_for_human")
         assert paused["phase"] == "awaiting_human"
 
-        confirmed = local_client.post(
-            f"/api/v1/exploration-tasks/{task_id}/confirm-login"
-        )
+        confirmed = local_client.post(f"/api/v1/exploration-tasks/{task_id}/confirm-login")
         assert confirmed.status_code == 200
 
         completed = _wait_for_task_state(local_client, task_id, "completed")
@@ -317,9 +342,9 @@ def test_local_login_task_completes_after_confirmation(login_site: LoginSite) ->
         result = local_client.get(f"/api/v1/exploration-tasks/{task_id}/result")
         assert result.status_code == 200
         assert result.json() == {
-            "page_count": 1,
-            "element_count": 2,
-            "link_count": 1,
+            "page_count": 2,
+            "element_count": 4,
+            "link_count": 2,
             "source_summary": "redacted source",
         }
         assert runtime_closed.wait(timeout=5)
@@ -327,9 +352,7 @@ def test_local_login_task_completes_after_confirmation(login_site: LoginSite) ->
         rejected_confirmation = local_client.post(
             f"/api/v1/exploration-tasks/{task_id}/confirm-login"
         )
-        rejected_cancellation = local_client.post(
-            f"/api/v1/exploration-tasks/{task_id}/cancel"
-        )
+        rejected_cancellation = local_client.post(f"/api/v1/exploration-tasks/{task_id}/cancel")
 
     assert rejected_confirmation.status_code == 409
     assert rejected_cancellation.status_code == 409
@@ -350,19 +373,18 @@ def test_local_browser_task_exposes_redacted_page_and_locator_details(
         )
         task_id = created.json()["task_id"]
         _wait_for_task_state(local_client, task_id, "paused_for_human")
-        assert local_client.post(
-            f"/api/v1/exploration-tasks/{task_id}/confirm-login"
-        ).status_code == 200
+        assert (
+            local_client.post(f"/api/v1/exploration-tasks/{task_id}/confirm-login").status_code
+            == 200
+        )
         _wait_for_task_state(local_client, task_id, "completed")
 
         pages = local_client.get(f"/api/v1/exploration-tasks/{task_id}/pages")
         assert pages.status_code == 200
-        assert len(pages.json()) == 1
+        assert len(pages.json()) == 2
         assert pages.json()[0]["page_id"] == "page-1"
 
-        detail = local_client.get(
-            f"/api/v1/exploration-tasks/{task_id}/pages/page-1"
-        )
+        detail = local_client.get(f"/api/v1/exploration-tasks/{task_id}/pages/page-1")
         assert detail.status_code == 200
         payload = detail.json()
         assert payload["elements"]

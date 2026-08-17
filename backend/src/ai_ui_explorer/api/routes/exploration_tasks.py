@@ -9,6 +9,7 @@ from jsonschema import Draft202012Validator
 
 from ai_ui_explorer.exploration.authentication import AuthenticationPlan
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.permission_comparison.models import PageEvidence
 from ai_ui_explorer.task_management.evidence import (
@@ -182,6 +183,17 @@ def export_task_evidence(
         media_type="application/json",
         headers={"Content-Disposition": "attachment; filename=exploration-evidence.json"},
     )
+
+
+@router.get("/{task_id}/workflow", response_model=TaskWorkflowExport)
+def get_task_workflow(
+    task_id: str,
+    service: Annotated[ExplorationTaskService, Depends(get_task_service)],
+) -> TaskWorkflowExport:
+    workflow = service.workflow(task_id)
+    if workflow is None:
+        raise _task_not_found()
+    return workflow
 
 
 def _require_summary(service: ExplorationTaskService, task_id: str) -> TaskSummary:

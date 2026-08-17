@@ -695,7 +695,7 @@ class PlaywrightBrowserSession:
         if (
             candidate.locator.uniqueness != "unique"
             or not candidate.locator.recommended
-            or candidate.frame_path != "main"
+            or candidate.frame_path not in {"main", "frame-0"}
         ):
             return _readonly_interaction_failure("unsupported_locator", url_before)
         try:
