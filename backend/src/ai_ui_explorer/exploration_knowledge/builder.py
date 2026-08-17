@@ -7,6 +7,7 @@ import json
 from collections.abc import Iterable
 from typing import cast
 
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
 from ai_ui_explorer.exploration_knowledge.models import (
     MAX_JSON_BYTES,
     ComparisonKnowledgeSource,
@@ -19,11 +20,14 @@ from ai_ui_explorer.exploration_knowledge.models import (
     KnowledgeGap,
     KnowledgeGapCode,
     KnowledgeIdentity,
+    KnowledgeInteractionStep,
     KnowledgeLocatorCandidate,
     KnowledgeObservation,
     KnowledgePage,
     KnowledgeSource,
     KnowledgeVisibilityDifference,
+    KnowledgeWorkflowEdge,
+    KnowledgeWorkflowNode,
     TaskKnowledgeSource,
     original_evidence_key,
 )
@@ -70,9 +74,13 @@ class _BuildState:
         self.locator_candidates: list[KnowledgeLocatorCandidate] = []
         self.facts: list[KnowledgeFact] = []
         self.visibility_differences: list[KnowledgeVisibilityDifference] = []
+        self.workflow_nodes: list[KnowledgeWorkflowNode] = []
+        self.interaction_steps: list[KnowledgeInteractionStep] = []
+        self.workflow_edges: list[KnowledgeWorkflowEdge] = []
         self.observations: list[KnowledgeObservation] = []
         self.knowledge_gaps: list[KnowledgeGap] = []
         self._evidence_ids: dict[tuple[str, tuple[str, str, str, str]], str] = {}
+        self._workflow_incomplete = False
 
     def add_source(self, source: ExplorationKnowledgeSource) -> None:
         if isinstance(source, TaskKnowledgeSource):
@@ -83,7 +91,10 @@ class _BuildState:
     def package(self) -> ExplorationKnowledgePackageV2:
         package_id = _id("exploration-package", *(item.source_id for item in self.sources))
         self._append_fixed_gap("package", "actions_not_explored")
-        self._append_fixed_gap("package", "workflows_not_observed")
+        if not self.workflow_nodes and not self.workflow_edges:
+            self._append_fixed_gap("package", "workflows_not_observed")
+        if self._workflow_incomplete:
+            self._append_fixed_gap("package", "workflows_partially_observed")
         self._append_fixed_gap("package", "evidence_process_local")
         return ExplorationKnowledgePackageV2(
             package_id=package_id,
@@ -95,6 +106,9 @@ class _BuildState:
             locator_candidates=self.locator_candidates,
             facts=self.facts,
             visibility_differences=self.visibility_differences,
+            workflow_nodes=self.workflow_nodes,
+            interaction_steps=self.interaction_steps,
+            workflow_edges=self.workflow_edges,
             observations=self.observations,
             knowledge_gaps=self.knowledge_gaps,
             inferences=[],
@@ -110,8 +124,46 @@ class _BuildState:
             )
         )
         self._append_reason_gaps(source.source_id, source.reason_codes)
+        if source.workflow is not None:
+            self._add_workflow(source.source_id, source.workflow)
+            self._workflow_incomplete = self._workflow_incomplete or (
+                source.state != "completed"
+                or any(step.status != "executed" for step in source.workflow.steps)
+            )
         for ordinal, page in enumerate(source.pages, start=1):
             self._add_page(source.source_id, None, page, ordinal)
+
+    def _add_workflow(self, source_ref: str, workflow: TaskWorkflowExport) -> None:
+        workflow_export = workflow
+        self.workflow_nodes.extend(
+            KnowledgeWorkflowNode(state=node.state) for node in workflow_export.nodes
+        )
+        for step in workflow_export.steps:
+            self.interaction_steps.append(
+                KnowledgeInteractionStep(
+                    step_id=_id("workflow-step", source_ref, step.step_id),
+                    source_ref=source_ref,
+                    kind=step.kind,
+                    target_summary=step.target_summary,
+                    before_state=step.before_state,
+                    after_state=step.after_state,
+                    status=step.status,
+                    reason_code=step.reason_code,
+                    evidence_refs=self._evidence_refs(source_ref, step.evidence_refs),
+                )
+            )
+        for edge in workflow_export.edges:
+            self.workflow_edges.append(
+                KnowledgeWorkflowEdge(
+                    edge_id=_id("workflow-edge", source_ref, edge.edge_id),
+                    source_ref=source_ref,
+                    source_state=edge.source_state,
+                    target_state=edge.target_state,
+                    kind=edge.kind,
+                    observation_count=edge.observation_count,
+                    evidence_refs=self._evidence_refs(source_ref, edge.evidence_refs),
+                )
+            )
 
     def _add_comparison(self, source: ComparisonKnowledgeSource) -> None:
         result = source.result

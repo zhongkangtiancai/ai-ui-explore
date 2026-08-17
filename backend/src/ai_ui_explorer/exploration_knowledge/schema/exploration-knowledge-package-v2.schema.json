@@ -329,6 +329,7 @@
         "not_matchable",
         "actions_not_explored",
         "workflows_not_observed",
+        "workflows_partially_observed",
         "evidence_process_local"
       ],
       "type": "string"
@@ -360,6 +361,84 @@
         "source_ref"
       ],
       "title": "KnowledgeIdentity",
+      "type": "object"
+    },
+    "KnowledgeInteractionStep": {
+      "additionalProperties": false,
+      "description": "One redacted readonly interaction observation, never a replay instruction.",
+      "properties": {
+        "step_id": {
+          "pattern": "^workflow-step-[a-f0-9]{16}$",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "source_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "target_summary": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Target Summary",
+          "type": "string"
+        },
+        "before_state": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Before State",
+          "type": "string"
+        },
+        "after_state": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After State"
+        },
+        "status": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Status",
+          "type": "string"
+        },
+        "reason_code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "step_id",
+        "source_ref",
+        "kind",
+        "target_summary",
+        "before_state",
+        "status",
+        "reason_code"
+      ],
+      "title": "KnowledgeInteractionStep",
       "type": "object"
     },
     "KnowledgeLocatorCandidate": {
@@ -685,6 +764,80 @@
       "title": "KnowledgeVisibilityDifference",
       "type": "object"
     },
+    "KnowledgeWorkflowEdge": {
+      "additionalProperties": false,
+      "description": "A merged transition that was verified by one or more readonly steps.",
+      "properties": {
+        "edge_id": {
+          "pattern": "^workflow-edge-[a-f0-9]{16}$",
+          "title": "Edge Id",
+          "type": "string"
+        },
+        "source_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_state": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source State",
+          "type": "string"
+        },
+        "target_state": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Target State",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "observation_count": {
+          "minimum": 1,
+          "title": "Observation Count",
+          "type": "integer"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "edge_id",
+        "source_ref",
+        "source_state",
+        "target_state",
+        "kind",
+        "observation_count",
+        "evidence_refs"
+      ],
+      "title": "KnowledgeWorkflowEdge",
+      "type": "object"
+    },
+    "KnowledgeWorkflowNode": {
+      "additionalProperties": false,
+      "description": "A verified observed page-state fingerprint in a readonly workflow.",
+      "properties": {
+        "state": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "KnowledgeWorkflowNode",
+      "type": "object"
+    },
     "TerminalState": {
       "enum": [
         "completed",
@@ -772,6 +925,30 @@
       },
       "maxItems": 20000,
       "title": "Visibility Differences",
+      "type": "array"
+    },
+    "workflow_nodes": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeWorkflowNode"
+      },
+      "maxItems": 5000,
+      "title": "Workflow Nodes",
+      "type": "array"
+    },
+    "interaction_steps": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeInteractionStep"
+      },
+      "maxItems": 5000,
+      "title": "Interaction Steps",
+      "type": "array"
+    },
+    "workflow_edges": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeWorkflowEdge"
+      },
+      "maxItems": 5000,
+      "title": "Workflow Edges",
       "type": "array"
     },
     "observations": {

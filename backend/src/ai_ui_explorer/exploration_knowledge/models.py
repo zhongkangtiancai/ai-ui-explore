@@ -6,6 +6,7 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
 from ai_ui_explorer.permission_comparison.models import (
     EvidenceReference,
@@ -29,6 +30,7 @@ type KnowledgeGapCode = Literal[
     "not_matchable",
     "actions_not_explored",
     "workflows_not_observed",
+    "workflows_partially_observed",
     "evidence_process_local",
 ]
 
@@ -40,6 +42,7 @@ class TaskKnowledgeSource(DeepFrozenModel):
     state: TerminalState
     pages: list[PageEvidence] = Field(default_factory=list, max_length=100)
     reason_codes: list[str] = Field(default_factory=list, max_length=20)
+    workflow: TaskWorkflowExport | None = None
 
 
 class ComparisonKnowledgeSource(DeepFrozenModel):
@@ -160,6 +163,38 @@ class KnowledgeVisibilityDifference(DeepFrozenModel):
     reliability: DifferenceReliability
 
 
+class KnowledgeWorkflowNode(DeepFrozenModel):
+    """A verified observed page-state fingerprint in a readonly workflow."""
+
+    state: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class KnowledgeInteractionStep(DeepFrozenModel):
+    """One redacted readonly interaction observation, never a replay instruction."""
+
+    step_id: str = Field(pattern=r"^workflow-step-[a-f0-9]{16}$")
+    source_ref: str = Field(min_length=1, max_length=40)
+    kind: str = Field(min_length=1, max_length=32)
+    target_summary: str = Field(min_length=1, max_length=500)
+    before_state: str = Field(pattern=r"^[0-9a-f]{64}$")
+    after_state: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    status: str = Field(min_length=1, max_length=32)
+    reason_code: str = Field(min_length=1, max_length=100)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=12)
+
+
+class KnowledgeWorkflowEdge(DeepFrozenModel):
+    """A merged transition that was verified by one or more readonly steps."""
+
+    edge_id: str = Field(pattern=r"^workflow-edge-[a-f0-9]{16}$")
+    source_ref: str = Field(min_length=1, max_length=40)
+    source_state: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_state: str = Field(pattern=r"^[0-9a-f]{64}$")
+    kind: str = Field(min_length=1, max_length=32)
+    observation_count: int = Field(ge=1)
+    evidence_refs: list[str] = Field(min_length=1, max_length=12)
+
+
 class ExplorationKnowledgePackageV2(DeepFrozenModel):
     """A bounded, downloadable runtime knowledge package with no inference."""
 
@@ -179,6 +214,11 @@ class ExplorationKnowledgePackageV2(DeepFrozenModel):
         default_factory=list,
         max_length=MAX_DIFFERENCES,
     )
+    workflow_nodes: list[KnowledgeWorkflowNode] = Field(default_factory=list, max_length=5_000)
+    interaction_steps: list[KnowledgeInteractionStep] = Field(
+        default_factory=list, max_length=5_000
+    )
+    workflow_edges: list[KnowledgeWorkflowEdge] = Field(default_factory=list, max_length=5_000)
     observations: list[KnowledgeObservation] = Field(
         default_factory=list,
         max_length=MAX_DIFFERENCES,
@@ -200,6 +240,8 @@ class ExplorationKnowledgePackageV2(DeepFrozenModel):
             *[item.evidence_refs for item in self.locator_candidates],
             *[item.evidence_refs for item in self.facts],
             *[item.evidence_refs for item in self.visibility_differences],
+            *[item.evidence_refs for item in self.workflow_edges],
+            *[item.evidence_refs for item in self.interaction_steps],
             *[item.evidence_refs for item in self.observations],
             *[item.evidence_refs for item in self.knowledge_gaps],
         ]

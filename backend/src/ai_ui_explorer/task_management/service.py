@@ -329,6 +329,10 @@ class ExplorationTaskService:
             ),
             pages=pages,
             reason_codes=list(evidence_export.reason_codes),
+            workflow=execution.evidence_collector.workflow(
+                task_id=summary.task_id,
+                state=summary.state,
+            ),
         )
 
     def events(self, task_id: str) -> list[TaskEventView] | None:

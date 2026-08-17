@@ -5,6 +5,12 @@ from pathlib import Path
 
 import pytest
 
+from ai_ui_explorer.exploration.workflows import (
+    InteractionStepView,
+    TaskWorkflowExport,
+    WorkflowEdgeView,
+    WorkflowNodeView,
+)
 from ai_ui_explorer.exploration_knowledge.builder import (
     ExplorationKnowledgeBuilder,
     ExplorationKnowledgePackageTooLargeError,
@@ -137,6 +143,72 @@ def test_builder_emits_only_resolvable_evidence_for_facts_and_locators() -> None
     assert all(set(fact.evidence_refs) <= evidence_ids for fact in package.facts)
     assert all(set(locator.evidence_refs) <= evidence_ids for locator in package.locator_candidates)
     assert json.loads(package.model_dump_json())["inferences"] == []
+
+
+def test_builder_exports_verified_readonly_workflow_without_inference() -> None:
+    before_state = "a" * 64
+    after_state = "b" * 64
+    source = _task_source().model_copy(
+        update={
+            "workflow": TaskWorkflowExport(
+                task_id="task-1",
+                state="completed",
+                steps=[
+                    InteractionStepView(
+                        step_id="step-" + "1" * 16,
+                        kind="open_menu",
+                        target_summary="安全菜单",
+                        before_state=before_state,
+                        after_state=after_state,
+                        status="executed",
+                        reason_code="executed",
+                        evidence_refs=[_evidence()],
+                    )
+                ],
+                nodes=[WorkflowNodeView(state=before_state), WorkflowNodeView(state=after_state)],
+                edges=[
+                    WorkflowEdgeView(
+                        edge_id="edge-" + "2" * 16,
+                        source_state=before_state,
+                        target_state=after_state,
+                        kind="open_menu",
+                        observation_count=1,
+                        evidence_refs=[_evidence()],
+                    )
+                ],
+            )
+        }
+    )
+
+    package = ExplorationKnowledgeBuilder().build([source])
+
+    assert [node.state for node in package.workflow_nodes] == [before_state, after_state]
+    assert package.interaction_steps[0].kind == "open_menu"
+    assert package.workflow_edges[0].observation_count == 1
+    assert set(package.interaction_steps[0].evidence_refs) <= {
+        item.evidence_id for item in package.evidence
+    }
+    assert package.inferences == []
+    assert not any(gap.code == "workflows_not_observed" for gap in package.knowledge_gaps)
+
+
+def test_builder_marks_partial_workflow_as_incomplete() -> None:
+    source = _task_source().model_copy(
+        update={
+            "state": "partial",
+            "workflow": TaskWorkflowExport(
+                task_id="task-1",
+                state="partial",
+                steps=[],
+                nodes=[],
+                edges=[],
+            ),
+        }
+    )
+
+    package = ExplorationKnowledgeBuilder().build([source])
+
+    assert any(gap.code == "workflows_partially_observed" for gap in package.knowledge_gaps)
 
 
 def test_builder_rejects_package_over_the_fixed_byte_budget(

@@ -118,6 +118,38 @@ export interface PageEvidence {
   evidence_refs: EvidenceReference[]
 }
 
+export interface InteractionStepView {
+  step_id: string
+  kind: string
+  target_summary: string
+  before_state: string
+  after_state: string | null
+  status: 'executed' | 'skipped' | 'paused' | 'failed'
+  reason_code: string
+  evidence_refs: EvidenceReference[]
+}
+
+export interface WorkflowNodeView {
+  state: string
+}
+
+export interface WorkflowEdgeView {
+  edge_id: string
+  source_state: string
+  target_state: string
+  kind: string
+  observation_count: number
+  evidence_refs: EvidenceReference[]
+}
+
+export interface TaskWorkflowExport {
+  task_id: string
+  state: Extract<TaskState, 'completed' | 'partial' | 'failed' | 'cancelled'>
+  steps: InteractionStepView[]
+  nodes: WorkflowNodeView[]
+  edges: WorkflowEdgeView[]
+}
+
 export class ExplorationTaskApiError extends Error {
   constructor() {
     super('Exploration task request failed')
@@ -150,6 +182,12 @@ export async function fetchExplorationTaskEvents(taskId: string): Promise<TaskEv
 
 export async function fetchExplorationTaskResult(taskId: string): Promise<TaskResultSummary> {
   return request<TaskResultSummary>(`/exploration-tasks/${encodeURIComponent(taskId)}/result`, {
+    headers: acceptHeaders(),
+  })
+}
+
+export async function fetchExplorationTaskWorkflow(taskId: string): Promise<TaskWorkflowExport> {
+  return request<TaskWorkflowExport>(`/exploration-tasks/${encodeURIComponent(taskId)}/workflow`, {
     headers: acceptHeaders(),
   })
 }

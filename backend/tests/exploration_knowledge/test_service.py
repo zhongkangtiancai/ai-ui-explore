@@ -81,6 +81,8 @@ def test_task_service_projects_only_a_terminal_safe_knowledge_source() -> None:
 
     assert source is not None
     assert source.state == "completed"
+    assert source.workflow is not None
+    assert source.workflow.task_id == task.task_id
     assert "runtime" not in source.model_dump_json()
     assert service.knowledge_source("task-999") is None
 

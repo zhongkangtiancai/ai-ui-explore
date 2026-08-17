@@ -9,6 +9,7 @@ vi.mock('../src/api/explorationTasks', () => ({
   fetchExplorationTask: vi.fn(),
   fetchExplorationTaskPageDetail: vi.fn(),
   fetchExplorationTaskPages: vi.fn(),
+  fetchExplorationTaskWorkflow: vi.fn(),
 }))
 
 vi.mock('../src/api/permissionComparisons', () => ({
@@ -30,6 +31,7 @@ import {
   createExplorationTask,
   fetchExplorationTask,
   fetchExplorationTaskPages,
+  fetchExplorationTaskWorkflow,
   type TaskSummary,
 } from '../src/api/explorationTasks'
 import {
@@ -219,6 +221,13 @@ describe('App', () => {
       }),
     )
     vi.mocked(fetchExplorationTaskPages).mockResolvedValue([])
+    vi.mocked(fetchExplorationTaskWorkflow).mockResolvedValue({
+      task_id: 'task-1',
+      state: 'completed',
+      nodes: [],
+      steps: [],
+      edges: [],
+    })
     vi.mocked(createExplorationTask).mockResolvedValue({
       ...createdTask,
       state: 'completed',
@@ -231,6 +240,7 @@ describe('App', () => {
 
     expect(wrapper.text()).toContain('探索明细')
     expect(wrapper.text()).toContain('已采集的脱敏证据')
+    expect(wrapper.text()).toContain('已观察到的状态变化')
   })
 
   it('stops polling after a terminal comparison', async () => {
