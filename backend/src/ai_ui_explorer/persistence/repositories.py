@@ -1,10 +1,14 @@
 """Repository codecs for strictly validated safe task projections."""
 
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 from pydantic import ValidationError
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
+from ai_ui_explorer.persistence.database import session_scope
 from ai_ui_explorer.persistence.models import (
     ExplorationTaskRecord,
     PermissionComparisonRecord,
@@ -12,10 +16,41 @@ from ai_ui_explorer.persistence.models import (
 from ai_ui_explorer.task_management.models import TaskSummary
 
 _TASK_PROJECTION_SCHEMA_VERSION = "1.0"
+_TERMINAL_TASK_STATES = frozenset({"completed", "partial", "failed", "cancelled"})
 
 
 class PersistenceProjectionError(RuntimeError):
     """A persisted projection cannot be safely exposed to a caller."""
+
+
+class SafeTaskRepository:
+    """Transactional persistence operations over safe task projections only."""
+
+    def __init__(self, *, session_factory: Callable[[], Session]) -> None:
+        self._session_factory = session_factory
+
+    def interrupt_nonterminal_tasks(self, *, occurred_at: datetime) -> list[str]:
+        """Safely terminate records that lost their process-local runtime on restart."""
+        with session_scope(self._session_factory) as session:
+            records = session.scalars(
+                select(ExplorationTaskRecord).where(
+                    ExplorationTaskRecord.state.not_in(_TERMINAL_TASK_STATES)
+                )
+            ).all()
+            for record in records:
+                record.state = "failed"
+                record.phase = "interrupted"
+                record.updated_at = occurred_at
+                record.events_json = [
+                    *record.events_json,
+                    {
+                        "event_type": "process_restarted",
+                        "reason_code": "process_restarted",
+                        "checkpoint_id": None,
+                        "occurred_at": _utc_timestamp(occurred_at),
+                    },
+                ]
+            return [record.task_id for record in records]
 
 
 def task_record_from_summary(summary: TaskSummary) -> ExplorationTaskRecord:
@@ -91,3 +126,7 @@ def comparison_view_from_record(
         )
     except ValidationError as error:
         raise PersistenceProjectionError("Persistence projection unavailable") from error
+
+
+def _utc_timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")

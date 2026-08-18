@@ -1,6 +1,6 @@
 """Synchronous PostgreSQL connection primitives with a safe error surface."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from sqlalchemy import Engine, create_engine, text
@@ -30,7 +30,7 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 @contextmanager
-def session_scope(session_factory: sessionmaker[Session]) -> Iterator[Session]:
+def session_scope(session_factory: Callable[[], Session]) -> Iterator[Session]:
     """Commit one repository operation or roll it back on failure."""
     session = session_factory()
     try:
