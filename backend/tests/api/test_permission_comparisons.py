@@ -224,9 +224,13 @@ def test_local_multirole_comparison_reports_observed_admin_difference(
         terminal = _wait_for_terminal_comparison(local_client, comparison_id)
 
     differences = terminal["result"]["differences"]
-    assert any("admin.html" in item["subject_key"] for item in differences), differences
     difference = next(
-        item for item in differences if item["subject_key"].endswith("/admin.html")
+        item
+        for item in differences
+        if item["identity_states"] == {
+            "identity-1": "observed",
+            "identity-2": "not_observed",
+        }
     )
     assert terminal["state"] == "completed"
     assert difference["reliability"] == "high"

@@ -153,6 +153,7 @@ def test_wheel_contains_schemas_and_installed_console_entry_point(
             "-m",
             "pip",
             "install",
+            "--force-reinstall",
             "--no-deps",
             str(wheel_path),
         ],
