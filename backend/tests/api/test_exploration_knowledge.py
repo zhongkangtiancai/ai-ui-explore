@@ -125,6 +125,32 @@ def test_local_task_and_comparison_export_one_redacted_knowledge_package(
     assert "cookie" not in response.text.lower()
 
 
+def test_local_login_task_discovers_only_safe_readonly_workflow(
+    permission_comparison_site: PermissionComparisonSite,
+) -> None:
+    app = _local_role_app(permission_comparison_site)
+    with TestClient(app) as local_client:
+        task_id = _complete_task(local_client, permission_comparison_site)
+        workflow = local_client.get(f"/api/v1/exploration-tasks/{task_id}/workflow")
+        package = local_client.post(
+            "/api/v1/exploration-knowledge-packages/export",
+            json={"task_ids": [task_id]},
+        )
+
+    assert workflow.status_code == 200
+    assert {edge["kind"] for edge in workflow.json()["edges"]} == {
+        "switch_tab",
+        "view_details",
+    }
+    assert package.status_code == 200
+    assert {edge["kind"] for edge in package.json()["workflow_edges"]} == {
+        "switch_tab",
+        "view_details",
+    }
+    assert package.json()["inferences"] == []
+    assert "fixture-password-do-not-return" not in package.text
+
+
 def _local_role_app(site: PermissionComparisonSite):
     class SimulatedRoleRuntime:
         def __init__(self, delegate: HumanLoginSession) -> None:

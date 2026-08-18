@@ -81,10 +81,27 @@ def _page(path: str, role: str) -> str:
         )
     if path == "/admin.html" and role == "admin":
         return "<!doctype html><main id='signed-in-marker'><h1>Admin console</h1></main>"
+    if path == "/details.html":
+        return (
+            "<!doctype html><main id='signed-in-marker'><h1>Readonly details</h1>"
+            "<p>Observed fixture detail only</p></main>"
+        )
     links = "<a href='/admin.html'>Admin console</a>" if role == "admin" else ""
     if role == "restricted":
         links = "<a href='/collector-failure.html'>Restricted area</a>"
-    return f"<!doctype html><main id='signed-in-marker'><h1>Dashboard {role}</h1>{links}</main>"
+    readonly_controls = (
+        "<button id='overview-tab' role='tab' aria-selected='true' "
+        "onclick=\"document.querySelector('#tab-content').textContent='Overview selected'\">"
+        "Overview</button>"
+        "<a id='view-details' href='/details.html'>查看详情</a>"
+        "<button id='dangerous-submit' type='submit'>提交订单</button>"
+        "<p id='tab-content'>Initial overview</p>"
+    ) if role == "admin" else ""
+    role_only = "<p id='admin-only'>Admin-only observation</p>" if role == "admin" else ""
+    return (
+        f"<!doctype html><main id='signed-in-marker'><h1>Dashboard {role}</h1>"
+        f"{readonly_controls}{role_only}{links}</main>"
+    )
 
 
 def _cookie_role(cookie_header: str) -> str:

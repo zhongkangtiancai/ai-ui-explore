@@ -26,6 +26,10 @@ Module、Action、Workflow、Identity、Role、Permission、Data Scope、Change 
 
 v2 只把直接观察到的字段写为 Fact，且 Fact、定位器与差异的证据引用必须在同一包内解析。对比不完整时差异可靠性为 `inconclusive`，相应信号以 Observation 或 KnowledgeGap 表达。`inferences` 固定为空；页面可见性不同不等于角色权限、业务授权或后端数据范围不同。包只在 HTTP 响应中生成，达到来源、页面、元素、差异、证据或 10 MiB 预算会固定拒绝，不做静默截断。
 
+## Sprint 9：只读交互与流程观察
+
+v2 可包含 `interaction_steps`、`workflow_nodes` 和 `workflow_edges`。步骤保存动作类别、脱敏目标摘要、前后状态、固定结果码和包内证据引用；边仅由已验证成功且状态变化的步骤归并。`workflows_not_observed`、`workflows_partially_observed` 和 `actions_not_explored` 是知识缺口，不能升级为业务结论；`inferences` 始终为空。
+
 ## 事实、观察与缺口
 
 Fact 只表达 Snapshot 中可直接观察且有证据的值，必须包含：
