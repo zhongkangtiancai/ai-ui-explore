@@ -1,8 +1,14 @@
 """Repository codecs for strictly validated safe task projections."""
 
+from datetime import datetime
+
 from pydantic import ValidationError
 
-from ai_ui_explorer.persistence.models import ExplorationTaskRecord
+from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
+from ai_ui_explorer.persistence.models import (
+    ExplorationTaskRecord,
+    PermissionComparisonRecord,
+)
 from ai_ui_explorer.task_management.models import TaskSummary
 
 _TASK_PROJECTION_SCHEMA_VERSION = "1.0"
@@ -41,6 +47,45 @@ def task_summary_from_record(record: ExplorationTaskRecord) -> TaskSummary:
                 "updated_at": record.updated_at,
                 "redaction_count": record.redaction_count,
                 "events": record.events_json,
+                "result": record.result_json,
+            }
+        )
+    except ValidationError as error:
+        raise PersistenceProjectionError("Persistence projection unavailable") from error
+
+
+def comparison_record_from_view(
+    view: PermissionComparisonView,
+    *,
+    created_at: datetime,
+    updated_at: datetime,
+) -> PermissionComparisonRecord:
+    """Project a completed comparison without retaining runtime or login inputs."""
+    if view.result is None:
+        raise PersistenceProjectionError("Persistence projection unavailable")
+    return PermissionComparisonRecord(
+        comparison_id=view.comparison_id,
+        state=view.state,
+        created_at=created_at,
+        updated_at=updated_at,
+        identities_json=view.identities,
+        result_json=view.result.model_dump(mode="json"),
+        schema_version=_TASK_PROJECTION_SCHEMA_VERSION,
+    )
+
+
+def comparison_view_from_record(
+    record: PermissionComparisonRecord,
+) -> PermissionComparisonView:
+    """Re-validate a terminal comparison row before exposing a conclusion."""
+    if record.schema_version != _TASK_PROJECTION_SCHEMA_VERSION or record.result_json is None:
+        raise PersistenceProjectionError("Persistence projection unavailable")
+    try:
+        return PermissionComparisonView.model_validate(
+            {
+                "comparison_id": record.comparison_id,
+                "state": record.state,
+                "identities": record.identities_json,
                 "result": record.result_json,
             }
         )
