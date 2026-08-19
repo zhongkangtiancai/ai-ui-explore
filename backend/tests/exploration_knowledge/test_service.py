@@ -1,5 +1,6 @@
 """Boundary tests for process-local unified knowledge exports."""
 
+from datetime import UTC, datetime
 from time import monotonic, sleep
 from types import SimpleNamespace
 
@@ -10,11 +11,20 @@ from ai_ui_explorer.exploration_knowledge.models import (
     ComparisonKnowledgeSource,
     TaskKnowledgeSource,
 )
+from ai_ui_explorer.exploration_knowledge.service import (
+    ExplorationKnowledgeExportRequest,
+    ExplorationKnowledgeExportService,
+)
 from ai_ui_explorer.permission_comparison.models import (
     IdentityEvidenceBundle,
     IdentityRunState,
     PermissionComparisonResult,
 )
+from ai_ui_explorer.permission_comparison.service import (
+    PermissionComparisonService,
+    PermissionComparisonView,
+)
+from ai_ui_explorer.task_management.models import TaskResultSummary, TaskSummary
 from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
 from ai_ui_explorer.task_management.service import (
     CreateExplorationTaskCommand,
@@ -87,6 +97,80 @@ def test_task_service_projects_only_a_terminal_safe_knowledge_source() -> None:
     assert service.knowledge_source("task-999") is None
 
 
+def test_export_service_uses_persisted_task_and_comparison_sources_after_restart() -> None:
+    task_source = TaskKnowledgeSource(
+        source_id="task-99",
+        state="completed",
+        pages=[],
+    )
+    task_summary = TaskSummary(
+        task_id="task-99",
+        state="completed",
+        phase="completed",
+        created_at=_timestamp(),
+        updated_at=_timestamp(),
+        redaction_count=0,
+        events=[],
+        result=TaskResultSummary(
+            page_count=0,
+            element_count=0,
+            link_count=0,
+            source_summary="redacted source",
+        ),
+    )
+    comparison_result = PermissionComparisonResult(
+        comparison_id="comparison-99",
+        status="completed",
+        identities=[
+            IdentityEvidenceBundle(identity_id="identity-1", state=IdentityRunState.COMPLETED),
+            IdentityEvidenceBundle(identity_id="identity-2", state=IdentityRunState.COMPLETED),
+        ],
+    )
+    comparison_source = ComparisonKnowledgeSource(
+        source_id="comparison-99",
+        result=comparison_result,
+        identity_labels={"identity-1": "管理员", "identity-2": "普通用户"},
+    )
+    task_service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=lambda *_args: object(),
+        runner_factory=lambda *_args: object(),
+        terminal_summary_reader=lambda task_id: task_summary if task_id == "task-99" else None,
+        terminal_summary_list_reader=lambda: [task_summary],
+        terminal_knowledge_source_reader=lambda task_id: (
+            task_source if task_id == "task-99" else None
+        ),
+    )
+    comparison_service = PermissionComparisonService(
+        task_service=_TaskSources(),  # type: ignore[arg-type]
+        terminal_view_list_reader=lambda: [
+            PermissionComparisonView(
+                comparison_id="comparison-99",
+                state="completed",
+                identities={"identity-1": "completed", "identity-2": "completed"},
+                result=comparison_result,
+            )
+        ],
+        terminal_knowledge_source_reader=lambda comparison_id: (
+            comparison_source if comparison_id == "comparison-99" else None
+        ),
+    )
+    service = ExplorationKnowledgeExportService(
+        task_service=task_service,
+        comparison_service=comparison_service,
+    )
+
+    package = service.export(
+        ExplorationKnowledgeExportRequest(
+            task_ids=["task-99"],
+            comparison_ids=["comparison-99"],
+        )
+    )
+
+    assert [source.source_id for source in service.sources()] == ["comparison-99", "task-99"]
+    assert {source.source_id for source in package.sources} == {"comparison-99", "task-99"}
+
+
 class _TaskSources:
     def list_summaries(self) -> list[object]:
         return [SimpleNamespace(task_id="task-1"), SimpleNamespace(task_id="task-2")]
@@ -136,3 +220,7 @@ def _wait_for(predicate: object) -> None:
             return
         sleep(0.01)
     raise AssertionError("task did not reach the expected state")
+
+
+def _timestamp() -> datetime:
+    return datetime(2026, 8, 19, tzinfo=UTC)
