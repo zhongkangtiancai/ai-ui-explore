@@ -27,6 +27,7 @@ def test_repository_persists_terminal_comparison_and_source_index_atomically() -
         view=_view(result=_result()),
         created_at=timestamp,
         updated_at=timestamp,
+        identity_labels={"identity-1": "管理员", "identity-2": "普通用户"},
     )
 
     assert [type(record) for record in session.merged] == [
@@ -34,6 +35,8 @@ def test_repository_persists_terminal_comparison_and_source_index_atomically() -
         ExplorationKnowledgeSourceRecord,
     ]
     assert session.committed is True
+    comparison_record = session.merged[0]
+    assert comparison_record.identities_json["labels"]["identity-1"] == "管理员"  # type: ignore[union-attr]
 
 
 def test_repository_rejects_comparison_without_result_before_transaction() -> None:

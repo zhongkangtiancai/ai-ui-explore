@@ -22,6 +22,23 @@ def test_repository_returns_valid_terminal_comparison_view() -> None:
     assert export.schema_version == "1.0"
 
 
+def test_repository_rebuilds_comparison_knowledge_source_with_persisted_labels() -> None:
+    record = _record(state="completed")
+    record.identities_json = {
+        "schema_version": "1.0",
+        "states": {"identity-1": "completed", "identity-2": "completed"},
+        "labels": {"identity-1": "管理员", "identity-2": "普通用户"},
+    }
+    repository = SafeTaskRepository(
+        session_factory=lambda: _FakeSession(record)  # type: ignore[arg-type]
+    )
+
+    source = repository.get_terminal_comparison_knowledge_source("comparison-1")
+
+    assert source is not None
+    assert source.identity_labels["identity-1"] == "管理员"
+
+
 def test_repository_hides_nonterminal_comparison_record() -> None:
     repository = SafeTaskRepository(
         session_factory=lambda: _FakeSession(_record(state="collecting"))  # type: ignore[arg-type]

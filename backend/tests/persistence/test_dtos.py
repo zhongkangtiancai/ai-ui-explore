@@ -1,9 +1,20 @@
 import pytest
 
 from ai_ui_explorer.persistence.dtos import (
+    PersistedComparisonIdentityMetadata,
     PersistencePayloadError,
     validate_safe_json_payload,
 )
+
+
+def test_persisted_comparison_identity_metadata_requires_matching_safe_labels() -> None:
+    metadata = PersistedComparisonIdentityMetadata(
+        schema_version="1.0",
+        states={"identity-1": "completed", "identity-2": "partial"},
+        labels={"identity-1": "管理员", "identity-2": "普通用户"},
+    )
+
+    assert metadata.labels["identity-1"] == "管理员"
 
 
 def test_safe_json_payload_rejects_nested_sensitive_key() -> None:

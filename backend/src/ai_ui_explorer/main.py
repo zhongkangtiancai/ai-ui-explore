@@ -183,22 +183,26 @@ def _create_comparison_service(
         view: PermissionComparisonView,
         created_at: datetime,
         updated_at: datetime,
+        identity_labels: dict[str, str],
     ) -> None:
         repository.persist_comparison_view(
             view=view,
             created_at=created_at,
             updated_at=updated_at,
+            identity_labels=identity_labels,
         )
 
     def persist_terminal_view(
         view: PermissionComparisonView,
         created_at: datetime,
         updated_at: datetime,
+        identity_labels: dict[str, str],
     ) -> None:
         repository.persist_terminal_comparison(
             view=view,
             created_at=created_at,
             updated_at=updated_at,
+            identity_labels=identity_labels,
         )
 
     return PermissionComparisonService(
@@ -209,6 +213,7 @@ def _create_comparison_service(
         terminal_view_list_reader=repository.list_terminal_comparison_views,
         terminal_pages_reader=repository.get_terminal_comparison_pages,
         terminal_page_detail_reader=repository.get_terminal_comparison_page_detail,
+        terminal_knowledge_source_reader=repository.get_terminal_comparison_knowledge_source,
     )
 
 

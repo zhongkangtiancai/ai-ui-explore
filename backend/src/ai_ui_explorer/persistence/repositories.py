@@ -9,7 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
-from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
+from ai_ui_explorer.exploration_knowledge.models import (
+    ComparisonKnowledgeSource,
+    TaskKnowledgeSource,
+)
 from ai_ui_explorer.permission_comparison.models import (
     PageEvidence,
     PermissionComparisonExport,
@@ -19,6 +22,7 @@ from ai_ui_explorer.permission_comparison.models import (
 from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
 from ai_ui_explorer.persistence.database import session_scope
 from ai_ui_explorer.persistence.dtos import (
+    PersistedComparisonIdentityMetadata,
     PersistedTaskPageEvidence,
     TaskEvidencePersistencePayload,
 )
@@ -231,6 +235,31 @@ class SafeTaskRepository:
         )
         return list(bundle.pages) if bundle is not None else None
 
+    def get_terminal_comparison_knowledge_source(
+        self,
+        comparison_id: str,
+    ) -> ComparisonKnowledgeSource | None:
+        """Rebuild a terminal comparison source including safe identity labels."""
+        session = self._session_factory()
+        try:
+            record = session.get(PermissionComparisonRecord, comparison_id)
+            if record is None:
+                return None
+            try:
+                view = comparison_view_from_record(record)
+                metadata = comparison_identity_metadata_from_record(record)
+            except PersistenceProjectionError:
+                return None
+            if view.result is None:
+                return None
+            return ComparisonKnowledgeSource(
+                source_id=comparison_id,
+                result=view.result,
+                identity_labels=metadata.labels,
+            )
+        finally:
+            session.close()
+
     def get_terminal_comparison_page_detail(
         self,
         comparison_id: str,
@@ -395,6 +424,7 @@ class SafeTaskRepository:
         view: PermissionComparisonView,
         created_at: datetime,
         updated_at: datetime,
+        identity_labels: dict[str, str] | None = None,
     ) -> None:
         """Atomically persist a terminal comparison and its export source index."""
         if view.result is None or view.state not in _TERMINAL_TASK_STATES:
@@ -403,6 +433,7 @@ class SafeTaskRepository:
             view,
             created_at=created_at,
             updated_at=updated_at,
+            identity_labels=identity_labels,
         )
         with session_scope(self._session_factory) as session:
             session.merge(record)
@@ -422,6 +453,7 @@ class SafeTaskRepository:
         view: PermissionComparisonView,
         created_at: datetime,
         updated_at: datetime,
+        identity_labels: dict[str, str] | None = None,
     ) -> None:
         """Persist a minimal comparison lifecycle index without a conclusion."""
         with session_scope(self._session_factory) as session:
@@ -431,7 +463,10 @@ class SafeTaskRepository:
                     state=view.state,
                     created_at=created_at,
                     updated_at=updated_at,
-                    identities_json=view.identities,
+                    identities_json=_comparison_identity_metadata(
+                        view.identities,
+                        identity_labels,
+                    ).model_dump(mode="json"),
                     result_json=None,
                     schema_version=_TASK_PROJECTION_SCHEMA_VERSION,
                 )
@@ -501,6 +536,7 @@ def comparison_record_from_view(
     *,
     created_at: datetime,
     updated_at: datetime,
+    identity_labels: dict[str, str] | None = None,
 ) -> PermissionComparisonRecord:
     """Project a completed comparison without retaining runtime or login inputs."""
     if view.result is None:
@@ -510,7 +546,10 @@ def comparison_record_from_view(
         state=view.state,
         created_at=created_at,
         updated_at=updated_at,
-        identities_json=view.identities,
+        identities_json=_comparison_identity_metadata(
+            view.identities,
+            identity_labels,
+        ).model_dump(mode="json"),
         result_json=view.result.model_dump(mode="json"),
         schema_version=_TASK_PROJECTION_SCHEMA_VERSION,
     )
@@ -530,7 +569,7 @@ def comparison_view_from_record(
                 {
                     "comparison_id": record.comparison_id,
                     "state": record.state,
-                    "identities": record.identities_json,
+                    "identities": comparison_identity_metadata_from_record(record).states,
                     "result": None,
                 }
             )
@@ -541,7 +580,7 @@ def comparison_view_from_record(
             {
                 "comparison_id": record.comparison_id,
                 "state": record.state,
-                "identities": record.identities_json,
+                "identities": comparison_identity_metadata_from_record(record).states,
                 "result": record.result_json,
             }
         )
@@ -551,3 +590,37 @@ def comparison_view_from_record(
 
 def _utc_timestamp(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def comparison_identity_metadata_from_record(
+    record: PermissionComparisonRecord,
+) -> PersistedComparisonIdentityMetadata:
+    """Decode safe label metadata, accepting legacy state-only records as ID labels."""
+    payload = record.identities_json
+    if "schema_version" not in payload:
+        if not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in payload.items()
+        ):
+            raise PersistenceProjectionError("Persistence projection unavailable")
+        legacy_states = cast(dict[str, str], payload)
+        return PersistedComparisonIdentityMetadata(
+            schema_version="1.0",
+            states=legacy_states,
+            labels={identity_id: identity_id for identity_id in legacy_states},
+        )
+    try:
+        return PersistedComparisonIdentityMetadata.model_validate(payload)
+    except ValidationError as error:
+        raise PersistenceProjectionError("Persistence projection unavailable") from error
+
+
+def _comparison_identity_metadata(
+    states: dict[str, str],
+    labels: dict[str, str] | None,
+) -> PersistedComparisonIdentityMetadata:
+    return PersistedComparisonIdentityMetadata(
+        schema_version="1.0",
+        states=states,
+        labels=labels or {identity_id: identity_id for identity_id in states},
+    )

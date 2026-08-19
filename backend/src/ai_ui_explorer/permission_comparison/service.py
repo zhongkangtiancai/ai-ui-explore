@@ -35,10 +35,17 @@ class PermissionComparisonServiceError(RuntimeError):
     """Fixed, non-sensitive comparison service error surface."""
 
 
-ComparisonViewWriter = Callable[["PermissionComparisonView", datetime, datetime], None]
+ComparisonViewWriter = Callable[
+    ["PermissionComparisonView", datetime, datetime, dict[str, str]],
+    None,
+]
 TerminalComparisonViewWriter = ComparisonViewWriter
 TerminalComparisonPagesReader = Callable[[str, str], list[PageEvidence] | None]
 TerminalComparisonPageDetailReader = Callable[[str, str, str], PageEvidence | None]
+TerminalComparisonKnowledgeSourceReader = Callable[
+    [str],
+    ComparisonKnowledgeSource | None,
+]
 
 
 class CreatePermissionComparisonCommand(DeepFrozenModel):
@@ -124,6 +131,7 @@ class PermissionComparisonService:
         terminal_view_writer: TerminalComparisonViewWriter | None = None,
         terminal_pages_reader: TerminalComparisonPagesReader | None = None,
         terminal_page_detail_reader: TerminalComparisonPageDetailReader | None = None,
+        terminal_knowledge_source_reader: TerminalComparisonKnowledgeSourceReader | None = None,
     ) -> None:
         self._task_service = task_service
         self._comparator = comparator or PermissionComparator()
@@ -133,6 +141,7 @@ class PermissionComparisonService:
         self._terminal_view_writer = terminal_view_writer
         self._terminal_pages_reader = terminal_pages_reader
         self._terminal_page_detail_reader = terminal_page_detail_reader
+        self._terminal_knowledge_source_reader = terminal_knowledge_source_reader
         self._lock = RLock()
         self._comparisons: dict[str, _ComparisonHandle] = {}
         self._next_comparison_number = 1
@@ -162,6 +171,7 @@ class PermissionComparisonService:
                     _view(comparison_id, handle),
                     timestamp,
                     timestamp,
+                    _identity_labels(handle),
                 )
             except Exception as error:
                 with self._lock:
@@ -200,7 +210,11 @@ class PermissionComparisonService:
         comparison_id: str,
     ) -> ComparisonKnowledgeSource | None:
         """Return a terminal result projection without task or browser handles."""
-        handle = self._require_handle(comparison_id)
+        with self._lock:
+            handle = self._comparisons.get(comparison_id)
+        if handle is None:
+            reader = self._terminal_knowledge_source_reader
+            return reader(comparison_id) if reader is not None else None
         with handle.lock:
             result = handle.result
             if result is None or handle.state not in {
@@ -376,7 +390,7 @@ class PermissionComparisonService:
         if writer is not None:
             timestamp = datetime.now(UTC)
             try:
-                writer(view, timestamp, timestamp)
+                writer(view, timestamp, timestamp, _identity_labels(handle))
             except Exception:
                 pass
 
@@ -404,6 +418,13 @@ def _view(comparison_id: str, handle: _ComparisonHandle) -> PermissionComparison
         },
         result=handle.result,
     )
+
+
+def _identity_labels(handle: _ComparisonHandle) -> dict[str, str]:
+    return {
+        identity_id: execution.profile.label
+        for identity_id, execution in handle.identities.items()
+    }
 
 
 def _require_bundle(

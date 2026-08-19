@@ -37,6 +37,20 @@ class PersistencePayloadError(RuntimeError):
     """A JSON projection cannot safely cross the persistence boundary."""
 
 
+class PersistedComparisonIdentityMetadata(DeepFrozenModel):
+    """Safe identity labels and lifecycle states retained for comparison exports."""
+
+    schema_version: str = Field(pattern=r"^1\.0$")
+    states: dict[str, str] = Field(min_length=2, max_length=5)
+    labels: dict[str, str] = Field(min_length=2, max_length=5)
+
+    @model_validator(mode="after")
+    def require_matching_identity_ids(self) -> PersistedComparisonIdentityMetadata:
+        if set(self.states) != set(self.labels):
+            raise ValueError("comparison identity labels must match identity states")
+        return self
+
+
 class PersistedTaskPageEvidence(DeepFrozenModel):
     """One page detail paired with its process-safe public page identifier."""
 

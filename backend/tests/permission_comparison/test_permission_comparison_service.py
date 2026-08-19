@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from time import monotonic, sleep
 from typing import Any
 
@@ -196,11 +197,18 @@ def test_view_allows_restart_interrupted_comparison_without_conclusion() -> None
 def test_service_persists_created_comparison_index_before_child_task_starts() -> None:
     tasks = _FakeTaskService()
     persisted_states: list[str] = []
+
+    def persist_created(
+        view: PermissionComparisonView,
+        _created_at: datetime,
+        _updated_at: datetime,
+        _labels: dict[str, str],
+    ) -> None:
+        persisted_states.append(view.state)
+
     service = PermissionComparisonService(
         task_service=tasks,
-        comparison_view_writer=lambda view, _created_at, _updated_at: persisted_states.append(
-            view.state
-        ),
+        comparison_view_writer=persist_created,
     )
 
     comparison = service.create(_command())
@@ -214,7 +222,7 @@ def test_service_persists_terminal_comparison_result_after_finalization() -> Non
     persisted: list[PermissionComparisonView] = []
     service = PermissionComparisonService(
         task_service=tasks,
-        terminal_view_writer=lambda view, _created_at, _updated_at: persisted.append(view),
+        terminal_view_writer=lambda view, _created_at, _updated_at, _labels: persisted.append(view),
     )
     comparison = service.create(_command())
 
