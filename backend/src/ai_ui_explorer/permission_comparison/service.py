@@ -36,6 +36,7 @@ class PermissionComparisonServiceError(RuntimeError):
 
 
 ComparisonViewWriter = Callable[["PermissionComparisonView", datetime, datetime], None]
+TerminalComparisonViewWriter = ComparisonViewWriter
 
 
 class CreatePermissionComparisonCommand(DeepFrozenModel):
@@ -118,12 +119,14 @@ class PermissionComparisonService:
         terminal_view_reader: Callable[[str], PermissionComparisonView | None] | None = None,
         terminal_view_list_reader: Callable[[], list[PermissionComparisonView]] | None = None,
         comparison_view_writer: ComparisonViewWriter | None = None,
+        terminal_view_writer: TerminalComparisonViewWriter | None = None,
     ) -> None:
         self._task_service = task_service
         self._comparator = comparator or PermissionComparator()
         self._terminal_view_reader = terminal_view_reader
         self._terminal_view_list_reader = terminal_view_list_reader
         self._comparison_view_writer = comparison_view_writer
+        self._terminal_view_writer = terminal_view_writer
         self._lock = RLock()
         self._comparisons: dict[str, _ComparisonHandle] = {}
         self._next_comparison_number = 1
@@ -340,8 +343,17 @@ class PermissionComparisonService:
         result = self._comparator.compare(bundles)
         if any(bundle.state != IdentityRunState.COMPLETED for bundle in bundles):
             result = result.model_copy(update={"status": "partial"})
-        handle.result = result
-        handle.state = result.status
+        with handle.lock:
+            handle.result = result
+            handle.state = result.status
+            view = _view(comparison_id, handle)
+        writer = self._terminal_view_writer
+        if writer is not None:
+            timestamp = datetime.now(UTC)
+            try:
+                writer(view, timestamp, timestamp)
+            except Exception:
+                pass
 
     def _require_handle(self, comparison_id: str) -> _ComparisonHandle:
         with self._lock:

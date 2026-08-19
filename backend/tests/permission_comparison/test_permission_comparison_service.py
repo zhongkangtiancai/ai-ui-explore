@@ -207,6 +207,31 @@ def test_service_persists_created_comparison_index_before_child_task_starts() ->
     assert persisted_states == ["created"]
 
 
+def test_service_persists_terminal_comparison_result_after_finalization() -> None:
+    tasks = _FakeTaskService()
+    persisted: list[PermissionComparisonView] = []
+    service = PermissionComparisonService(
+        task_service=tasks,
+        terminal_view_writer=lambda view, _created_at, _updated_at: persisted.append(view),
+    )
+    comparison = service.create(_command())
+
+    _wait_for(
+        lambda: service.get(comparison.comparison_id).identities["identity-1"]
+        == "paused_for_human"
+    )
+    service.confirm_login(comparison.comparison_id, "identity-1")
+    _wait_for(
+        lambda: service.get(comparison.comparison_id).identities["identity-2"]
+        == "paused_for_human"
+    )
+    service.confirm_login(comparison.comparison_id, "identity-2")
+    _wait_for(lambda: service.get(comparison.comparison_id).state == "completed")
+
+    assert persisted[-1].state == "completed"
+    assert persisted[-1].result is not None
+
+
 def test_service_lists_persisted_terminal_comparison_after_runtime_is_absent() -> None:
     persisted = PermissionComparisonView(
         comparison_id="comparison-99",
