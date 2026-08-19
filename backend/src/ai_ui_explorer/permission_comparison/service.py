@@ -112,10 +112,12 @@ class PermissionComparisonService:
         task_service: _ChildTaskService | ExplorationTaskService,
         comparator: PermissionComparator | None = None,
         terminal_view_reader: Callable[[str], PermissionComparisonView | None] | None = None,
+        terminal_view_list_reader: Callable[[], list[PermissionComparisonView]] | None = None,
     ) -> None:
         self._task_service = task_service
         self._comparator = comparator or PermissionComparator()
         self._terminal_view_reader = terminal_view_reader
+        self._terminal_view_list_reader = terminal_view_list_reader
         self._lock = RLock()
         self._comparisons: dict[str, _ComparisonHandle] = {}
         self._next_comparison_number = 1
@@ -153,10 +155,15 @@ class PermissionComparisonService:
             return _view(comparison_id, handle)
 
     def list_views(self) -> list[PermissionComparisonView]:
-        """List copied public comparison views in stable public-ID order."""
+        """List live comparisons plus persisted terminal views absent from this process."""
         with self._lock:
             comparison_ids = sorted(self._comparisons)
-        return [self.get(comparison_id) for comparison_id in comparison_ids]
+        views = {comparison_id: self.get(comparison_id) for comparison_id in comparison_ids}
+        reader = self._terminal_view_list_reader
+        if reader is not None:
+            for view in reader():
+                views.setdefault(view.comparison_id, view)
+        return [views[comparison_id] for comparison_id in sorted(views)]
 
     def knowledge_source(
         self,

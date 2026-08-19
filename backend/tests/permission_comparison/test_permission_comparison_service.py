@@ -179,6 +179,34 @@ def test_service_reads_persisted_terminal_comparison_after_runtime_is_absent() -
     assert service.get("comparison-99") == persisted
 
 
+def test_service_lists_persisted_terminal_comparison_after_runtime_is_absent() -> None:
+    persisted = PermissionComparisonView(
+        comparison_id="comparison-99",
+        state="completed",
+        identities={"identity-1": "completed", "identity-2": "completed"},
+        result=PermissionComparisonResult(
+            comparison_id="comparison-99",
+            status="completed",
+            identities=[
+                IdentityEvidenceBundle(
+                    identity_id="identity-1",
+                    state=IdentityRunState.COMPLETED,
+                ),
+                IdentityEvidenceBundle(
+                    identity_id="identity-2",
+                    state=IdentityRunState.COMPLETED,
+                ),
+            ],
+        ),
+    )
+    service = PermissionComparisonService(
+        task_service=_FakeTaskService(),
+        terminal_view_list_reader=lambda: [persisted],
+    )
+
+    assert service.list_views() == [persisted]
+
+
 def _wait_for(predicate: Any) -> None:
     deadline = monotonic() + 2
     while monotonic() < deadline:
