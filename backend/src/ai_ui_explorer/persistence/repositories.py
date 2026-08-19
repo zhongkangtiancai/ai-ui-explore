@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 
 from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
 from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
-from ai_ui_explorer.permission_comparison.models import PageEvidence
+from ai_ui_explorer.permission_comparison.models import (
+    PageEvidence,
+    PermissionComparisonExport,
+    PermissionComparisonResult,
+    VisibilityDifference,
+)
 from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
 from ai_ui_explorer.persistence.database import session_scope
 from ai_ui_explorer.persistence.dtos import (
@@ -211,6 +216,52 @@ class SafeTaskRepository:
         finally:
             session.close()
 
+    def get_terminal_comparison_pages(
+        self,
+        comparison_id: str,
+        identity_id: str,
+    ) -> list[PageEvidence] | None:
+        """Read one identity's terminal redacted pages without a browser runtime."""
+        result = self._get_terminal_comparison_result(comparison_id)
+        if result is None:
+            return None
+        bundle = next(
+            (item for item in result.identities if item.identity_id == identity_id),
+            None,
+        )
+        return list(bundle.pages) if bundle is not None else None
+
+    def get_terminal_comparison_page_detail(
+        self,
+        comparison_id: str,
+        identity_id: str,
+        page_key: str,
+    ) -> PageEvidence | None:
+        """Read one validated redacted comparison page by its public key."""
+        pages = self.get_terminal_comparison_pages(comparison_id, identity_id)
+        return next((page for page in pages or [] if page.page_key == page_key), None)
+
+    def get_terminal_comparison_differences(
+        self,
+        comparison_id: str,
+    ) -> list[VisibilityDifference] | None:
+        """Read a completed comparison's observed differences only."""
+        result = self._get_terminal_comparison_result(comparison_id)
+        return list(result.differences) if result is not None else None
+
+    def get_terminal_comparison_export(
+        self,
+        comparison_id: str,
+    ) -> PermissionComparisonExport | None:
+        """Read the versioned comparison export from a validated terminal result."""
+        result = self._get_terminal_comparison_result(comparison_id)
+        if result is None:
+            return None
+        try:
+            return PermissionComparisonExport(**result.model_dump(mode="python"))
+        except ValidationError as error:
+            raise PersistenceProjectionError("Persistence projection unavailable") from error
+
     def list_terminal_task_summaries(self) -> list[TaskSummary]:
         """List only complete, schema-valid public task projections."""
         session = self._session_factory()
@@ -280,6 +331,13 @@ class SafeTaskRepository:
             return payload
         finally:
             session.close()
+
+    def _get_terminal_comparison_result(
+        self,
+        comparison_id: str,
+    ) -> PermissionComparisonResult | None:
+        view = self.get_terminal_comparison_view(comparison_id)
+        return view.result if view is not None else None
 
     def persist_terminal_task(
         self,
@@ -462,8 +520,22 @@ def comparison_view_from_record(
     record: PermissionComparisonRecord,
 ) -> PermissionComparisonView:
     """Re-validate a terminal comparison row before exposing a conclusion."""
-    if record.schema_version != _TASK_PROJECTION_SCHEMA_VERSION or record.result_json is None:
+    if record.schema_version != _TASK_PROJECTION_SCHEMA_VERSION:
         raise PersistenceProjectionError("Persistence projection unavailable")
+    if record.result_json is None:
+        if record.state not in {"failed", "cancelled"}:
+            raise PersistenceProjectionError("Persistence projection unavailable")
+        try:
+            return PermissionComparisonView.model_validate(
+                {
+                    "comparison_id": record.comparison_id,
+                    "state": record.state,
+                    "identities": record.identities_json,
+                    "result": None,
+                }
+            )
+        except ValidationError as error:
+            raise PersistenceProjectionError("Persistence projection unavailable") from error
     try:
         return PermissionComparisonView.model_validate(
             {

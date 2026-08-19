@@ -37,6 +37,8 @@ class PermissionComparisonServiceError(RuntimeError):
 
 ComparisonViewWriter = Callable[["PermissionComparisonView", datetime, datetime], None]
 TerminalComparisonViewWriter = ComparisonViewWriter
+TerminalComparisonPagesReader = Callable[[str, str], list[PageEvidence] | None]
+TerminalComparisonPageDetailReader = Callable[[str, str, str], PageEvidence | None]
 
 
 class CreatePermissionComparisonCommand(DeepFrozenModel):
@@ -120,6 +122,8 @@ class PermissionComparisonService:
         terminal_view_list_reader: Callable[[], list[PermissionComparisonView]] | None = None,
         comparison_view_writer: ComparisonViewWriter | None = None,
         terminal_view_writer: TerminalComparisonViewWriter | None = None,
+        terminal_pages_reader: TerminalComparisonPagesReader | None = None,
+        terminal_page_detail_reader: TerminalComparisonPageDetailReader | None = None,
     ) -> None:
         self._task_service = task_service
         self._comparator = comparator or PermissionComparator()
@@ -127,6 +131,8 @@ class PermissionComparisonService:
         self._terminal_view_list_reader = terminal_view_list_reader
         self._comparison_view_writer = comparison_view_writer
         self._terminal_view_writer = terminal_view_writer
+        self._terminal_pages_reader = terminal_pages_reader
+        self._terminal_page_detail_reader = terminal_page_detail_reader
         self._lock = RLock()
         self._comparisons: dict[str, _ComparisonHandle] = {}
         self._next_comparison_number = 1
@@ -254,7 +260,14 @@ class PermissionComparisonService:
         comparison_id: str,
         identity_id: str,
     ) -> list[PageEvidence]:
-        handle = self._require_handle(comparison_id)
+        with self._lock:
+            handle = self._comparisons.get(comparison_id)
+        if handle is None:
+            reader = self._terminal_pages_reader
+            pages = reader(comparison_id, identity_id) if reader is not None else None
+            if pages is None:
+                raise PermissionComparisonServiceError("Identity evidence is not available.")
+            return pages
         with handle.lock:
             bundle = _require_bundle(handle, identity_id)
             return list(bundle.pages)
@@ -265,6 +278,18 @@ class PermissionComparisonService:
         identity_id: str,
         page_key: str,
     ) -> PageEvidence:
+        with self._lock:
+            handle = self._comparisons.get(comparison_id)
+        if handle is None:
+            reader = self._terminal_page_detail_reader
+            page = (
+                reader(comparison_id, identity_id, page_key)
+                if reader is not None
+                else None
+            )
+            if page is None:
+                raise PermissionComparisonServiceError("Identity evidence is not available.")
+            return page
         return next(
             page
             for page in self.pages(comparison_id, identity_id)

@@ -9,9 +9,11 @@ from typing import Any
 from ai_ui_explorer.exploration.authentication import AuthenticationPlan
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ExplorationTarget, ModuleEntry
 from ai_ui_explorer.permission_comparison.models import (
+    EvidenceReference,
     IdentityEvidenceBundle,
     IdentityProfile,
     IdentityRunState,
+    PageEvidence,
     PermissionComparisonResult,
 )
 from ai_ui_explorer.permission_comparison.service import (
@@ -258,6 +260,41 @@ def test_service_lists_persisted_terminal_comparison_after_runtime_is_absent() -
     )
 
     assert service.list_views() == [persisted]
+
+
+def test_service_reads_persisted_comparison_pages_after_runtime_is_absent() -> None:
+    page = PageEvidence(
+        page_key="origin-1/path",
+        evidence_refs=[
+            EvidenceReference(
+                evidence_id="evidence-1",
+                snapshot_id="snapshot-1",
+                snapshot_schema_version="1.1",
+                snapshot_sha256="a" * 64,
+                json_pointer="/frames/0",
+                excerpt="safe",
+            )
+        ],
+    )
+    service = PermissionComparisonService(
+        task_service=_FakeTaskService(),
+        terminal_pages_reader=lambda comparison_id, identity_id: (
+            [page]
+            if (comparison_id, identity_id) == ("comparison-99", "identity-1")
+            else None
+        ),
+        terminal_page_detail_reader=lambda comparison_id, identity_id, page_key: (
+            page
+            if (comparison_id, identity_id, page_key)
+            == ("comparison-99", "identity-1", "origin-1/path")
+            else None
+        ),
+    )
+
+    assert service.pages("comparison-99", "identity-1") == [page]
+    assert (
+        service.page_detail("comparison-99", "identity-1", "origin-1/path") == page
+    )
 
 
 def _wait_for(predicate: Any) -> None:

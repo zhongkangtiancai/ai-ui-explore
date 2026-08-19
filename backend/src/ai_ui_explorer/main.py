@@ -207,6 +207,8 @@ def _create_comparison_service(
         terminal_view_writer=persist_terminal_view,
         terminal_view_reader=repository.get_terminal_comparison_view,
         terminal_view_list_reader=repository.list_terminal_comparison_views,
+        terminal_pages_reader=repository.get_terminal_comparison_pages,
+        terminal_page_detail_reader=repository.get_terminal_comparison_page_detail,
     )
 
 

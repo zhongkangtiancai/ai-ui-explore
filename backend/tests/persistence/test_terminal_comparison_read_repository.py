@@ -15,6 +15,11 @@ def test_repository_returns_valid_terminal_comparison_view() -> None:
     assert view.comparison_id == "comparison-1"
     assert view.result is not None
     assert view.result.status == "completed"
+    assert repository.get_terminal_comparison_pages("comparison-1", "identity-1") == []
+    assert repository.get_terminal_comparison_differences("comparison-1") == []
+    export = repository.get_terminal_comparison_export("comparison-1")
+    assert export is not None
+    assert export.schema_version == "1.0"
 
 
 def test_repository_hides_nonterminal_comparison_record() -> None:
@@ -23,6 +28,21 @@ def test_repository_hides_nonterminal_comparison_record() -> None:
     )
 
     assert repository.get_terminal_comparison_view("comparison-1") is None
+
+
+def test_repository_returns_failed_interrupted_comparison_without_result() -> None:
+    record = _record(state="failed")
+    record.identities_json = {"identity-1": "failed", "identity-2": "failed"}
+    record.result_json = None
+    repository = SafeTaskRepository(
+        session_factory=lambda: _FakeSession(record)  # type: ignore[arg-type]
+    )
+
+    view = repository.get_terminal_comparison_view("comparison-1")
+
+    assert view is not None
+    assert view.state == "failed"
+    assert view.result is None
 
 
 class _FakeSession:
