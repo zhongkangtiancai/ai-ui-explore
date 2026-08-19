@@ -8,10 +8,16 @@ from typing import Any
 
 from ai_ui_explorer.exploration.authentication import AuthenticationPlan
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ExplorationTarget, ModuleEntry
-from ai_ui_explorer.permission_comparison.models import IdentityProfile
+from ai_ui_explorer.permission_comparison.models import (
+    IdentityEvidenceBundle,
+    IdentityProfile,
+    IdentityRunState,
+    PermissionComparisonResult,
+)
 from ai_ui_explorer.permission_comparison.service import (
     CreatePermissionComparisonCommand,
     PermissionComparisonService,
+    PermissionComparisonView,
 )
 from tests.snapshot.factories import make_element, make_frame, make_snapshot
 
@@ -141,6 +147,36 @@ def _authentication_plan() -> AuthenticationPlan:
         post_login_url_prefix="https://app.example.test/dashboard",
         checkpoint_css_selector="#signed-in-marker",
     )
+
+
+def test_service_reads_persisted_terminal_comparison_after_runtime_is_absent() -> None:
+    persisted = PermissionComparisonView(
+        comparison_id="comparison-99",
+        state="completed",
+        identities={"identity-1": "completed", "identity-2": "completed"},
+        result=PermissionComparisonResult(
+            comparison_id="comparison-99",
+            status="completed",
+            identities=[
+                IdentityEvidenceBundle(
+                    identity_id="identity-1",
+                    state=IdentityRunState.COMPLETED,
+                ),
+                IdentityEvidenceBundle(
+                    identity_id="identity-2",
+                    state=IdentityRunState.COMPLETED,
+                ),
+            ],
+        ),
+    )
+    service = PermissionComparisonService(
+        task_service=_FakeTaskService(),
+        terminal_view_reader=lambda comparison_id: (
+            persisted if comparison_id == "comparison-99" else None
+        ),
+    )
+
+    assert service.get("comparison-99") == persisted
 
 
 def _wait_for(predicate: Any) -> None:

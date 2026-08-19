@@ -71,6 +71,23 @@ class SafeTaskRepository:
         finally:
             session.close()
 
+    def get_terminal_comparison_view(
+        self,
+        comparison_id: str,
+    ) -> PermissionComparisonView | None:
+        """Read one complete terminal comparison without re-running any identity."""
+        session = self._session_factory()
+        try:
+            record = session.get(PermissionComparisonRecord, comparison_id)
+            if record is None or record.state not in _TERMINAL_TASK_STATES:
+                return None
+            try:
+                return comparison_view_from_record(record)
+            except PersistenceProjectionError:
+                return None
+        finally:
+            session.close()
+
     def persist_terminal_task(
         self,
         *,

@@ -111,9 +111,11 @@ class PermissionComparisonService:
         *,
         task_service: _ChildTaskService | ExplorationTaskService,
         comparator: PermissionComparator | None = None,
+        terminal_view_reader: Callable[[str], PermissionComparisonView | None] | None = None,
     ) -> None:
         self._task_service = task_service
         self._comparator = comparator or PermissionComparator()
+        self._terminal_view_reader = terminal_view_reader
         self._lock = RLock()
         self._comparisons: dict[str, _ComparisonHandle] = {}
         self._next_comparison_number = 1
@@ -139,7 +141,14 @@ class PermissionComparisonService:
         return self.get(comparison_id)
 
     def get(self, comparison_id: str) -> PermissionComparisonView:
-        handle = self._require_handle(comparison_id)
+        with self._lock:
+            handle = self._comparisons.get(comparison_id)
+        if handle is None:
+            reader = self._terminal_view_reader
+            persisted = reader(comparison_id) if reader is not None else None
+            if persisted is None:
+                raise PermissionComparisonServiceError("Comparison was not found.")
+            return persisted
         with handle.lock:
             return _view(comparison_id, handle)
 
