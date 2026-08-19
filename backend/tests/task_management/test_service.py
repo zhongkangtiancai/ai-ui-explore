@@ -25,6 +25,10 @@ from ai_ui_explorer.permission_comparison.models import EvidenceReference, PageE
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.collector import SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
+from ai_ui_explorer.task_management.evidence import (
+    ExplorationEvidenceExport,
+    TaskPageView,
+)
 from ai_ui_explorer.task_management.models import (
     ManagedTask,
     TaskEventView,
@@ -321,6 +325,68 @@ def test_service_persists_terminal_projection_before_external_callback() -> None
     _wait_for(lambda: callbacks == [task.task_id])
     assert persisted == [task.task_id]
     assert callbacks == [task.task_id]
+
+
+def test_service_reads_all_terminal_evidence_views_after_runtime_is_absent() -> None:
+    timestamp = datetime(2026, 8, 19, tzinfo=UTC)
+    reference = EvidenceReference(
+        evidence_id="evidence-1",
+        snapshot_id="snapshot-1",
+        snapshot_schema_version="1.1",
+        snapshot_sha256="a" * 64,
+        json_pointer="/frames/0",
+        excerpt="safe",
+    )
+    page = PageEvidence(page_key="origin-1/path", evidence_refs=[reference])
+    page_view = TaskPageView(
+        page_id="page-1",
+        page_key="origin-1/path",
+        frame_count=1,
+        element_count=0,
+        link_count=0,
+        status="observed",
+        evidence_refs=[reference],
+    )
+    summary = TaskSummary(
+        task_id="task-99",
+        state="completed",
+        phase="completed",
+        created_at=timestamp,
+        updated_at=timestamp,
+        redaction_count=0,
+        events=[],
+        result=TaskResultSummary(
+            page_count=1,
+            element_count=0,
+            link_count=0,
+            source_summary="redacted source",
+        ),
+    )
+    export = ExplorationEvidenceExport(
+        schema_version="1.0",
+        task_id="task-99",
+        state="completed",
+        result=summary.result,
+        pages=[page_view],
+    )
+    workflow = TaskWorkflowExport(task_id="task-99", state="completed")
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=_Fakes().runner_factory,
+        terminal_summary_reader=lambda task_id: summary if task_id == "task-99" else None,
+        terminal_pages_reader=lambda task_id: [page_view] if task_id == "task-99" else None,
+        terminal_page_detail_reader=lambda task_id, page_id: (
+            page if (task_id, page_id) == ("task-99", "page-1") else None
+        ),
+        terminal_export_reader=lambda task_id: export if task_id == "task-99" else None,
+        terminal_workflow_reader=lambda task_id: workflow if task_id == "task-99" else None,
+    )
+
+    assert service.pages("task-99") == [page_view]
+    assert service.page_detail("task-99", "page-1") == page
+    assert service.export("task-99") == export
+    assert service.workflow("task-99") == workflow
 
 
 def test_service_persists_minimal_task_index_before_starting_runtime() -> None:

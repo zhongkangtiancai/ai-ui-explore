@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
 from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
+from ai_ui_explorer.permission_comparison.models import PageEvidence
 from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
 from ai_ui_explorer.persistence.database import session_scope
 from ai_ui_explorer.persistence.dtos import (
@@ -23,7 +24,7 @@ from ai_ui_explorer.persistence.models import (
     TaskEvidenceExportRecord,
     TaskWorkflowRecord,
 )
-from ai_ui_explorer.task_management.evidence import ExplorationEvidenceExport
+from ai_ui_explorer.task_management.evidence import ExplorationEvidenceExport, TaskPageView
 from ai_ui_explorer.task_management.models import TaskSummary
 
 _TASK_PROJECTION_SCHEMA_VERSION = "1.0"
@@ -125,6 +126,57 @@ class SafeTaskRepository:
         finally:
             session.close()
 
+    def get_terminal_task_evidence_export(
+        self,
+        task_id: str,
+    ) -> ExplorationEvidenceExport | None:
+        """Read a schema-validated terminal evidence export without runtime state."""
+        payload = self._get_terminal_task_evidence_payload(task_id)
+        return payload.export if payload is not None else None
+
+    def get_terminal_task_pages(self, task_id: str) -> list[TaskPageView] | None:
+        """Read the bounded terminal page index from the safe evidence payload."""
+        payload = self._get_terminal_task_evidence_payload(task_id)
+        return list(payload.export.pages) if payload is not None else None
+
+    def get_terminal_task_page_detail(
+        self,
+        task_id: str,
+        page_id: str,
+    ) -> PageEvidence | None:
+        """Read one redacted page detail, never an underlying snapshot."""
+        payload = self._get_terminal_task_evidence_payload(task_id)
+        if payload is None:
+            return None
+        return next(
+            (entry.page for entry in payload.pages if entry.page_id == page_id),
+            None,
+        )
+
+    def get_terminal_task_workflow(
+        self,
+        task_id: str,
+    ) -> TaskWorkflowExport | None:
+        """Read a schema-validated readonly workflow for one terminal task."""
+        session = self._session_factory()
+        try:
+            task_record = session.get(ExplorationTaskRecord, task_id)
+            workflow_record = session.get(TaskWorkflowRecord, task_id)
+            if (
+                task_record is None
+                or workflow_record is None
+                or task_record.state not in _TERMINAL_TASK_STATES
+            ):
+                return None
+            try:
+                task_summary_from_record(task_record)
+                workflow = task_workflow_from_record(workflow_record)
+            except PersistenceProjectionError:
+                return None
+            return workflow if workflow.task_id == task_id else None
+        finally:
+            session.close()
+
     def get_terminal_comparison_view(
         self,
         comparison_id: str,
@@ -181,6 +233,34 @@ class SafeTaskRepository:
                 except PersistenceProjectionError:
                     continue
             return sorted(views, key=lambda view: view.comparison_id)
+        finally:
+            session.close()
+
+    def _get_terminal_task_evidence_payload(
+        self,
+        task_id: str,
+    ) -> TaskEvidencePersistencePayload | None:
+        session = self._session_factory()
+        try:
+            task_record = session.get(ExplorationTaskRecord, task_id)
+            evidence_record = session.get(TaskEvidenceExportRecord, task_id)
+            if (
+                task_record is None
+                or evidence_record is None
+                or task_record.state not in _TERMINAL_TASK_STATES
+            ):
+                return None
+            try:
+                task_summary_from_record(task_record)
+                payload = task_evidence_payload_from_record(evidence_record)
+            except PersistenceProjectionError:
+                return None
+            if (
+                payload.export.task_id != task_id
+                or str(payload.export.state) != task_record.state
+            ):
+                return None
+            return payload
         finally:
             session.close()
 

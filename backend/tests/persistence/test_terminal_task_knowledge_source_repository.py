@@ -72,6 +72,10 @@ def test_repository_rebuilds_terminal_task_knowledge_source_from_safe_records() 
     assert source.source_id == "task-1"
     assert source.pages[0].page_key == "origin-1/path"
     assert source.workflow is not None
+    assert repository.get_terminal_task_pages("task-1")[0].page_id == "page-1"
+    assert repository.get_terminal_task_page_detail("task-1", "page-1") == source.pages[0]
+    assert repository.get_terminal_task_evidence_export("task-1") is not None
+    assert repository.get_terminal_task_workflow("task-1") == source.workflow
 
 
 class _FakeSession:

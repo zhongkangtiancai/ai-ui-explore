@@ -92,6 +92,10 @@ TerminalSummaryListReader = Callable[[], list[TaskSummary]]
 TerminalKnowledgeSourceReader = Callable[[str], TaskKnowledgeSource | None]
 TerminalProjectionWriter = Callable[[TaskSummary, TaskEvidenceCollector], None]
 TaskSummaryWriter = Callable[[TaskSummary], None]
+TerminalPagesReader = Callable[[str], list[TaskPageView] | None]
+TerminalPageDetailReader = Callable[[str, str], PageEvidence | None]
+TerminalExportReader = Callable[[str], ExplorationEvidenceExport | None]
+TerminalWorkflowReader = Callable[[str], TaskWorkflowExport | None]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -243,6 +247,10 @@ class ExplorationTaskService:
         terminal_knowledge_source_reader: TerminalKnowledgeSourceReader | None = None,
         terminal_projection_writer: TerminalProjectionWriter | None = None,
         task_summary_writer: TaskSummaryWriter | None = None,
+        terminal_pages_reader: TerminalPagesReader | None = None,
+        terminal_page_detail_reader: TerminalPageDetailReader | None = None,
+        terminal_export_reader: TerminalExportReader | None = None,
+        terminal_workflow_reader: TerminalWorkflowReader | None = None,
     ) -> None:
         self._registry = registry
         self._runtime_factory = runtime_factory
@@ -253,6 +261,10 @@ class ExplorationTaskService:
         self._terminal_knowledge_source_reader = terminal_knowledge_source_reader
         self._terminal_projection_writer = terminal_projection_writer
         self._task_summary_writer = task_summary_writer
+        self._terminal_pages_reader = terminal_pages_reader
+        self._terminal_page_detail_reader = terminal_page_detail_reader
+        self._terminal_export_reader = terminal_export_reader
+        self._terminal_workflow_reader = terminal_workflow_reader
         self._lock = RLock()
         self._executions: dict[str, _TaskExecution] = {}
         self._next_task_number = 1
@@ -426,19 +438,28 @@ class ExplorationTaskService:
     def pages(self, task_id: str) -> list[TaskPageView] | None:
         """Return process-local page indexes without Snapshot or runtime handles."""
         execution = self._execution_for(task_id)
-        return execution.evidence_collector.pages() if execution is not None else None
+        if execution is not None:
+            return execution.evidence_collector.pages()
+        reader = self._terminal_pages_reader
+        return reader(task_id) if reader is not None else None
 
     def page_detail(self, task_id: str, page_id: str) -> PageEvidence | None:
         """Return one already-redacted page evidence record."""
         execution = self._execution_for(task_id)
-        return execution.evidence_collector.page_detail(page_id) if execution is not None else None
+        if execution is not None:
+            return execution.evidence_collector.page_detail(page_id)
+        reader = self._terminal_page_detail_reader
+        return reader(task_id, page_id) if reader is not None else None
 
     def export(self, task_id: str) -> ExplorationEvidenceExport | None:
         """Build a schema-valid, process-local export from bounded projections."""
         summary = self.get(task_id)
         execution = self._execution_for(task_id)
-        if summary is None or execution is None:
+        if summary is None:
             return None
+        if execution is None:
+            reader = self._terminal_export_reader
+            return reader(task_id) if reader is not None else None
         return execution.evidence_collector.export(
             task_id=summary.task_id,
             state=summary.state,
@@ -449,8 +470,11 @@ class ExplorationTaskService:
         """Return a terminal task's process-local readonly workflow projection."""
         summary = self.get(task_id)
         execution = self._execution_for(task_id)
-        if summary is None or execution is None or str(summary.state) not in _TERMINAL_STATES:
+        if summary is None or str(summary.state) not in _TERMINAL_STATES:
             return None
+        if execution is None:
+            reader = self._terminal_workflow_reader
+            return reader(task_id) if reader is not None else None
         return execution.evidence_collector.workflow(
             task_id=summary.task_id,
             state=summary.state,
