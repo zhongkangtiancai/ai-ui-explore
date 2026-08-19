@@ -88,6 +88,48 @@ class SafeTaskRepository:
         finally:
             session.close()
 
+    def list_terminal_task_summaries(self) -> list[TaskSummary]:
+        """List only complete, schema-valid public task projections."""
+        session = self._session_factory()
+        try:
+            records = session.scalars(
+                select(ExplorationTaskRecord)
+                .where(ExplorationTaskRecord.state.in_(_TERMINAL_TASK_STATES))
+                .order_by(ExplorationTaskRecord.task_id)
+            ).all()
+            summaries: list[TaskSummary] = []
+            for record in records:
+                if record.state not in _TERMINAL_TASK_STATES:
+                    continue
+                try:
+                    summaries.append(task_summary_from_record(record))
+                except PersistenceProjectionError:
+                    continue
+            return sorted(summaries, key=lambda summary: summary.task_id)
+        finally:
+            session.close()
+
+    def list_terminal_comparison_views(self) -> list[PermissionComparisonView]:
+        """List only complete, schema-valid persisted comparison projections."""
+        session = self._session_factory()
+        try:
+            records = session.scalars(
+                select(PermissionComparisonRecord)
+                .where(PermissionComparisonRecord.state.in_(_TERMINAL_TASK_STATES))
+                .order_by(PermissionComparisonRecord.comparison_id)
+            ).all()
+            views: list[PermissionComparisonView] = []
+            for record in records:
+                if record.state not in _TERMINAL_TASK_STATES:
+                    continue
+                try:
+                    views.append(comparison_view_from_record(record))
+                except PersistenceProjectionError:
+                    continue
+            return sorted(views, key=lambda view: view.comparison_id)
+        finally:
+            session.close()
+
     def persist_terminal_task(
         self,
         *,

@@ -224,6 +224,33 @@ def test_service_reads_persisted_terminal_summary_after_runtime_is_absent() -> N
     assert service.get("task-99") == persisted
 
 
+def test_service_lists_persisted_terminal_summary_after_runtime_is_absent() -> None:
+    timestamp = datetime(2026, 8, 19, tzinfo=UTC)
+    persisted = TaskSummary(
+        task_id="task-99",
+        state="completed",
+        phase="completed",
+        created_at=timestamp,
+        updated_at=timestamp,
+        redaction_count=0,
+        events=[TaskEventView(event_type="task_completed", occurred_at=timestamp)],
+        result=TaskResultSummary(
+            page_count=0,
+            element_count=0,
+            link_count=0,
+            source_summary="redacted source",
+        ),
+    )
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=_Fakes().runner_factory,
+        terminal_summary_list_reader=lambda: [persisted],
+    )
+
+    assert service.list_summaries() == [persisted]
+
+
 def _wait_for(predicate: Callable[[], bool]) -> None:
     deadline = monotonic() + 2
     while monotonic() < deadline:

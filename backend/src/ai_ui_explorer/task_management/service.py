@@ -88,6 +88,7 @@ RunnerFactory = Callable[
 ]
 CollectorFactory = Callable[["_TaskRuntimeContext"], object]
 TerminalSummaryReader = Callable[[str], TaskSummary | None]
+TerminalSummaryListReader = Callable[[], list[TaskSummary]]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -235,12 +236,14 @@ class ExplorationTaskService:
         runner_factory: RunnerFactory,
         collector_factory: CollectorFactory | None = None,
         terminal_summary_reader: TerminalSummaryReader | None = None,
+        terminal_summary_list_reader: TerminalSummaryListReader | None = None,
     ) -> None:
         self._registry = registry
         self._runtime_factory = runtime_factory
         self._runner_factory = runner_factory
         self._collector_factory = collector_factory or _empty_collector
         self._terminal_summary_reader = terminal_summary_reader
+        self._terminal_summary_list_reader = terminal_summary_list_reader
         self._lock = RLock()
         self._executions: dict[str, _TaskExecution] = {}
         self._next_task_number = 1
@@ -308,8 +311,13 @@ class ExplorationTaskService:
         return reader(task_id) if reader is not None else None
 
     def list_summaries(self) -> list[TaskSummary]:
-        """List copied public task summaries without exposing runtime handles."""
-        return self._registry.list_summaries()
+        """List live tasks plus persisted terminal summaries missing from this process."""
+        summaries = {summary.task_id: summary for summary in self._registry.list_summaries()}
+        reader = self._terminal_summary_list_reader
+        if reader is not None:
+            for summary in reader():
+                summaries.setdefault(summary.task_id, summary)
+        return [summaries[task_id] for task_id in sorted(summaries)]
 
     def knowledge_source(self, task_id: str) -> TaskKnowledgeSource | None:
         """Project one terminal task into bounded, already-redacted evidence."""
