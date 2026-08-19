@@ -91,6 +91,7 @@ TerminalSummaryReader = Callable[[str], TaskSummary | None]
 TerminalSummaryListReader = Callable[[], list[TaskSummary]]
 TerminalKnowledgeSourceReader = Callable[[str], TaskKnowledgeSource | None]
 TerminalProjectionWriter = Callable[[TaskSummary, TaskEvidenceCollector], None]
+TaskSummaryWriter = Callable[[TaskSummary], None]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -241,6 +242,7 @@ class ExplorationTaskService:
         terminal_summary_list_reader: TerminalSummaryListReader | None = None,
         terminal_knowledge_source_reader: TerminalKnowledgeSourceReader | None = None,
         terminal_projection_writer: TerminalProjectionWriter | None = None,
+        task_summary_writer: TaskSummaryWriter | None = None,
     ) -> None:
         self._registry = registry
         self._runtime_factory = runtime_factory
@@ -250,6 +252,7 @@ class ExplorationTaskService:
         self._terminal_summary_list_reader = terminal_summary_list_reader
         self._terminal_knowledge_source_reader = terminal_knowledge_source_reader
         self._terminal_projection_writer = terminal_projection_writer
+        self._task_summary_writer = task_summary_writer
         self._lock = RLock()
         self._executions: dict[str, _TaskExecution] = {}
         self._next_task_number = 1
@@ -289,6 +292,15 @@ class ExplorationTaskService:
         with self._lock:
             self._executions[task.task_id] = execution
         task_id = task.task_id
+        writer = self._task_summary_writer
+        if writer is not None:
+            try:
+                writer(managed.summary())
+            except Exception as error:
+                with self._lock:
+                    self._executions.pop(task_id, None)
+                self._registry.remove(task_id)
+                raise TaskServiceError("Task could not be created.") from error
 
         def release_runtime() -> None:
             self._release_runtime(task_id)

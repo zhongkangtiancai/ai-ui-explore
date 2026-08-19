@@ -63,6 +63,11 @@ class SafeTaskRepository:
                 ]
             return [record.task_id for record in records]
 
+    def persist_task_summary(self, summary: TaskSummary) -> None:
+        """Persist only the safe lifecycle index for a task that may still be running."""
+        with session_scope(self._session_factory) as session:
+            session.merge(task_record_from_summary(summary))
+
     def get_terminal_task_summary(self, task_id: str) -> TaskSummary | None:
         """Read one terminal public summary without exposing nonterminal runtime state."""
         session = self._session_factory()

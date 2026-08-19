@@ -323,6 +323,23 @@ def test_service_persists_terminal_projection_before_external_callback() -> None
     assert callbacks == [task.task_id]
 
 
+def test_service_persists_minimal_task_index_before_starting_runtime() -> None:
+    fakes = _Fakes()
+    persisted_states: list[str] = []
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=fakes.runner_factory,
+        task_summary_writer=lambda summary: persisted_states.append(str(summary.state)),
+    )
+
+    task = service.create(_command())
+
+    assert task.state == "paused_for_human"
+    assert persisted_states == ["created"]
+    assert fakes.runtime is not None
+
+
 def _wait_for(predicate: Callable[[], bool]) -> None:
     deadline = monotonic() + 2
     while monotonic() < deadline:

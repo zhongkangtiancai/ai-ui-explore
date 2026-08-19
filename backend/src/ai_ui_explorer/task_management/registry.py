@@ -39,3 +39,8 @@ class ExplorationTaskRegistry:
             task = self._tasks.get(task_id)
         if task is not None:
             task.remove_runtime()
+
+    def remove(self, task_id: str) -> None:
+        """Forget an entry that never acquired a runnable process-local task."""
+        with self._lock:
+            self._tasks.pop(task_id, None)

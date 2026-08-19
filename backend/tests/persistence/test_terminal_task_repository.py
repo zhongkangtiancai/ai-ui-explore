@@ -119,6 +119,16 @@ def test_repository_rejects_nonterminal_task_without_opening_transaction() -> No
     assert session.committed is False
 
 
+def test_repository_persists_nonterminal_task_summary_without_evidence_or_source() -> None:
+    session = _FakeSession()
+    repository = SafeTaskRepository(session_factory=lambda: session)  # type: ignore[arg-type]
+
+    repository.persist_task_summary(_summary(state="collecting", phase="collecting"))
+
+    assert [type(record) for record in session.merged] == [ExplorationTaskRecord]
+    assert session.committed is True
+
+
 class _FakeSession:
     def __init__(self) -> None:
         self.merged: list[object] = []
