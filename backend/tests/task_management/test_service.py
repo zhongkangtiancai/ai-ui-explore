@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from threading import Event
 from time import monotonic, sleep
 
@@ -21,7 +22,12 @@ from ai_ui_explorer.permission_comparison.evidence import IdentityEvidenceCollec
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.collector import SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
-from ai_ui_explorer.task_management.models import ManagedTask
+from ai_ui_explorer.task_management.models import (
+    ManagedTask,
+    TaskEventView,
+    TaskResultSummary,
+    TaskSummary,
+)
 from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
 from ai_ui_explorer.task_management.service import (
     CreateExplorationTaskCommand,
@@ -189,6 +195,33 @@ def _service(fakes: _Fakes) -> ExplorationTaskService:
         runtime_factory=fakes.runtime_factory,
         runner_factory=fakes.runner_factory,
     )
+
+
+def test_service_reads_persisted_terminal_summary_after_runtime_is_absent() -> None:
+    timestamp = datetime(2026, 8, 19, tzinfo=UTC)
+    persisted = TaskSummary(
+        task_id="task-99",
+        state="completed",
+        phase="completed",
+        created_at=timestamp,
+        updated_at=timestamp,
+        redaction_count=0,
+        events=[TaskEventView(event_type="task_completed", occurred_at=timestamp)],
+        result=TaskResultSummary(
+            page_count=1,
+            element_count=2,
+            link_count=3,
+            source_summary="redacted source",
+        ),
+    )
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=_Fakes().runner_factory,
+        terminal_summary_reader=lambda task_id: persisted if task_id == "task-99" else None,
+    )
+
+    assert service.get("task-99") == persisted
 
 
 def _wait_for(predicate: Callable[[], bool]) -> None:

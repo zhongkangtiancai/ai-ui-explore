@@ -87,6 +87,7 @@ RunnerFactory = Callable[
     _TaskRunner,
 ]
 CollectorFactory = Callable[["_TaskRuntimeContext"], object]
+TerminalSummaryReader = Callable[[str], TaskSummary | None]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -233,11 +234,13 @@ class ExplorationTaskService:
         runtime_factory: RuntimeFactory,
         runner_factory: RunnerFactory,
         collector_factory: CollectorFactory | None = None,
+        terminal_summary_reader: TerminalSummaryReader | None = None,
     ) -> None:
         self._registry = registry
         self._runtime_factory = runtime_factory
         self._runner_factory = runner_factory
         self._collector_factory = collector_factory or _empty_collector
+        self._terminal_summary_reader = terminal_summary_reader
         self._lock = RLock()
         self._executions: dict[str, _TaskExecution] = {}
         self._next_task_number = 1
@@ -297,9 +300,12 @@ class ExplorationTaskService:
         return managed.summary()
 
     def get(self, task_id: str) -> TaskSummary | None:
-        """Return a safe task summary, or ``None`` after unknown/restarted tasks."""
+        """Read a live task first, then one persisted terminal safe projection."""
         managed = self._registry.get(task_id)
-        return managed.summary() if managed is not None else None
+        if managed is not None:
+            return managed.summary()
+        reader = self._terminal_summary_reader
+        return reader(task_id) if reader is not None else None
 
     def list_summaries(self) -> list[TaskSummary]:
         """List copied public task summaries without exposing runtime handles."""

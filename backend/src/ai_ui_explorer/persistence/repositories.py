@@ -57,6 +57,20 @@ class SafeTaskRepository:
                 ]
             return [record.task_id for record in records]
 
+    def get_terminal_task_summary(self, task_id: str) -> TaskSummary | None:
+        """Read one terminal public summary without exposing nonterminal runtime state."""
+        session = self._session_factory()
+        try:
+            record = session.get(ExplorationTaskRecord, task_id)
+            if record is None or record.state not in _TERMINAL_TASK_STATES:
+                return None
+            try:
+                return task_summary_from_record(record)
+            except PersistenceProjectionError:
+                return None
+        finally:
+            session.close()
+
     def persist_terminal_task(
         self,
         *,
