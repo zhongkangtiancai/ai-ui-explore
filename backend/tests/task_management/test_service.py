@@ -18,7 +18,10 @@ from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapte
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
 from ai_ui_explorer.exploration.runner import ExplorationCancellationToken, ExplorationRunner
 from ai_ui_explorer.exploration.task import ExplorationTask
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
+from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
 from ai_ui_explorer.permission_comparison.evidence import IdentityEvidenceCollector
+from ai_ui_explorer.permission_comparison.models import EvidenceReference, PageEvidence
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.collector import SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
@@ -249,6 +252,52 @@ def test_service_lists_persisted_terminal_summary_after_runtime_is_absent() -> N
     )
 
     assert service.list_summaries() == [persisted]
+
+
+def test_service_reads_persisted_terminal_knowledge_source_after_runtime_is_absent() -> None:
+    reference = EvidenceReference(
+        evidence_id="evidence-1",
+        snapshot_id="snapshot-1",
+        snapshot_schema_version="1.1",
+        snapshot_sha256="a" * 64,
+        json_pointer="/frames/0",
+        excerpt="safe",
+    )
+    persisted = TaskKnowledgeSource(
+        source_id="task-99",
+        state="completed",
+        pages=[PageEvidence(page_key="origin-1/path", evidence_refs=[reference])],
+        workflow=TaskWorkflowExport(task_id="task-99", state="completed"),
+    )
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=_Fakes().runner_factory,
+        terminal_summary_reader=lambda task_id: (
+            TaskSummary(
+                task_id="task-99",
+                state="completed",
+                phase="completed",
+                created_at=datetime(2026, 8, 19, tzinfo=UTC),
+                updated_at=datetime(2026, 8, 19, tzinfo=UTC),
+                redaction_count=0,
+                events=[],
+                result=TaskResultSummary(
+                    page_count=1,
+                    element_count=0,
+                    link_count=0,
+                    source_summary="redacted source",
+                ),
+            )
+            if task_id == "task-99"
+            else None
+        ),
+        terminal_knowledge_source_reader=lambda task_id: (
+            persisted if task_id == "task-99" else None
+        ),
+    )
+
+    assert service.knowledge_source("task-99") == persisted
 
 
 def _wait_for(predicate: Callable[[], bool]) -> None:

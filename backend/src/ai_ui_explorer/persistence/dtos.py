@@ -6,6 +6,12 @@ import json
 import re
 from collections.abc import Mapping, Set
 
+from pydantic import Field, model_validator
+
+from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
+from ai_ui_explorer.permission_comparison.models import PageEvidence
+from ai_ui_explorer.task_management.evidence import ExplorationEvidenceExport
+
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
 
@@ -29,6 +35,28 @@ _MAX_JSON_BYTES = 10 * 1024 * 1024
 
 class PersistencePayloadError(RuntimeError):
     """A JSON projection cannot safely cross the persistence boundary."""
+
+
+class PersistedTaskPageEvidence(DeepFrozenModel):
+    """One page detail paired with its process-safe public page identifier."""
+
+    page_id: str = Field(pattern=r"^page-[0-9]{1,20}$")
+    page: PageEvidence
+
+
+class TaskEvidencePersistencePayload(DeepFrozenModel):
+    """Complete redacted task evidence required for restart-safe knowledge exports."""
+
+    export: ExplorationEvidenceExport
+    pages: list[PersistedTaskPageEvidence] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def require_matching_page_indexes(self) -> TaskEvidencePersistencePayload:
+        export_pages = {page.page_id: page.page_key for page in self.export.pages}
+        detail_pages = {page.page_id: page.page.page_key for page in self.pages}
+        if export_pages != detail_pages:
+            raise ValueError("persisted page IDs must match evidence export")
+        return self
 
 
 def validate_safe_json_payload(

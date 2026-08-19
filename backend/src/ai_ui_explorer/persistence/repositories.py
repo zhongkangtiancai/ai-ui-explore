@@ -2,14 +2,20 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Literal, cast
 
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
+from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
 from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
 from ai_ui_explorer.persistence.database import session_scope
+from ai_ui_explorer.persistence.dtos import (
+    PersistedTaskPageEvidence,
+    TaskEvidencePersistencePayload,
+)
 from ai_ui_explorer.persistence.models import (
     ExplorationKnowledgeSourceRecord,
     ExplorationTaskRecord,
@@ -68,6 +74,49 @@ class SafeTaskRepository:
                 return task_summary_from_record(record)
             except PersistenceProjectionError:
                 return None
+        finally:
+            session.close()
+
+    def get_terminal_task_knowledge_source(
+        self,
+        task_id: str,
+    ) -> TaskKnowledgeSource | None:
+        """Rebuild one complete terminal task source from safe persisted projections."""
+        session = self._session_factory()
+        try:
+            task_record = session.get(ExplorationTaskRecord, task_id)
+            evidence_record = session.get(TaskEvidenceExportRecord, task_id)
+            workflow_record = session.get(TaskWorkflowRecord, task_id)
+            if (
+                task_record is None
+                or evidence_record is None
+                or workflow_record is None
+                or task_record.state not in _TERMINAL_TASK_STATES
+            ):
+                return None
+            try:
+                summary = task_summary_from_record(task_record)
+                evidence_payload = task_evidence_payload_from_record(evidence_record)
+                workflow = task_workflow_from_record(workflow_record)
+            except PersistenceProjectionError:
+                return None
+            if (
+                evidence_payload.export.task_id != summary.task_id
+                or str(evidence_payload.export.state) != str(summary.state)
+                or workflow.task_id != summary.task_id
+                or workflow.state != str(summary.state)
+            ):
+                return None
+            return TaskKnowledgeSource(
+                source_id=summary.task_id,
+                state=cast(
+                    Literal["completed", "partial", "failed", "cancelled"],
+                    str(summary.state),
+                ),
+                pages=[entry.page for entry in evidence_payload.pages],
+                reason_codes=list(evidence_payload.export.reason_codes),
+                workflow=workflow,
+            )
         finally:
             session.close()
 
@@ -136,6 +185,7 @@ class SafeTaskRepository:
         summary: TaskSummary,
         evidence: ExplorationEvidenceExport,
         workflow: TaskWorkflowExport,
+        pages: list[PersistedTaskPageEvidence] | None = None,
     ) -> None:
         """Atomically persist one fully projected, terminal task result."""
         if (
@@ -146,12 +196,19 @@ class SafeTaskRepository:
             or workflow.state != str(summary.state)
         ):
             raise PersistenceProjectionError("Persistence projection unavailable")
+        try:
+            evidence_payload = TaskEvidencePersistencePayload(
+                export=evidence,
+                pages=pages or [],
+            )
+        except ValidationError as error:
+            raise PersistenceProjectionError("Persistence projection unavailable") from error
         with session_scope(self._session_factory) as session:
             session.merge(task_record_from_summary(summary))
             session.merge(
                 TaskEvidenceExportRecord(
                     task_id=summary.task_id,
-                    payload=evidence.model_dump(mode="json"),
+                    payload=evidence_payload.model_dump(mode="json"),
                     schema_version=evidence.schema_version,
                 )
             )
@@ -232,6 +289,28 @@ def task_summary_from_record(record: ExplorationTaskRecord) -> TaskSummary:
                 "result": record.result_json,
             }
         )
+    except ValidationError as error:
+        raise PersistenceProjectionError("Persistence projection unavailable") from error
+
+
+def task_evidence_payload_from_record(
+    record: TaskEvidenceExportRecord,
+) -> TaskEvidencePersistencePayload:
+    """Decode and validate a stored evidence payload before it becomes a source."""
+    if record.schema_version != _TASK_PROJECTION_SCHEMA_VERSION:
+        raise PersistenceProjectionError("Persistence projection unavailable")
+    try:
+        return TaskEvidencePersistencePayload.model_validate(record.payload)
+    except ValidationError as error:
+        raise PersistenceProjectionError("Persistence projection unavailable") from error
+
+
+def task_workflow_from_record(record: TaskWorkflowRecord) -> TaskWorkflowExport:
+    """Decode and validate a stored readonly workflow projection."""
+    if record.schema_version != _TASK_PROJECTION_SCHEMA_VERSION:
+        raise PersistenceProjectionError("Persistence projection unavailable")
+    try:
+        return TaskWorkflowExport.model_validate(record.payload)
     except ValidationError as error:
         raise PersistenceProjectionError("Persistence projection unavailable") from error
 

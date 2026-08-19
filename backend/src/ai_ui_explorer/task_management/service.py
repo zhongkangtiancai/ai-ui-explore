@@ -89,6 +89,7 @@ RunnerFactory = Callable[
 CollectorFactory = Callable[["_TaskRuntimeContext"], object]
 TerminalSummaryReader = Callable[[str], TaskSummary | None]
 TerminalSummaryListReader = Callable[[], list[TaskSummary]]
+TerminalKnowledgeSourceReader = Callable[[str], TaskKnowledgeSource | None]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -237,6 +238,7 @@ class ExplorationTaskService:
         collector_factory: CollectorFactory | None = None,
         terminal_summary_reader: TerminalSummaryReader | None = None,
         terminal_summary_list_reader: TerminalSummaryListReader | None = None,
+        terminal_knowledge_source_reader: TerminalKnowledgeSourceReader | None = None,
     ) -> None:
         self._registry = registry
         self._runtime_factory = runtime_factory
@@ -244,6 +246,7 @@ class ExplorationTaskService:
         self._collector_factory = collector_factory or _empty_collector
         self._terminal_summary_reader = terminal_summary_reader
         self._terminal_summary_list_reader = terminal_summary_list_reader
+        self._terminal_knowledge_source_reader = terminal_knowledge_source_reader
         self._lock = RLock()
         self._executions: dict[str, _TaskExecution] = {}
         self._next_task_number = 1
@@ -323,8 +326,11 @@ class ExplorationTaskService:
         """Project one terminal task into bounded, already-redacted evidence."""
         summary = self.get(task_id)
         execution = self._execution_for(task_id)
-        if summary is None or execution is None or str(summary.state) not in _TERMINAL_STATES:
+        if summary is None or str(summary.state) not in _TERMINAL_STATES:
             return None
+        if execution is None:
+            reader = self._terminal_knowledge_source_reader
+            return reader(task_id) if reader is not None else None
         evidence_export = execution.evidence_collector.export(
             task_id=summary.task_id,
             state=summary.state,
