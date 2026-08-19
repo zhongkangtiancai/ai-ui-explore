@@ -24,6 +24,20 @@ def test_repository_hides_nonterminal_task_record() -> None:
     assert repository.get_terminal_task_summary("task-1") is None
 
 
+def test_repository_returns_process_restart_interruption_as_safe_failed_summary() -> None:
+    repository = SafeTaskRepository(
+        session_factory=lambda: _FakeSession(_interrupted_record())  # type: ignore[arg-type]
+    )
+
+    summary = repository.get_terminal_task_summary("task-1")
+
+    assert summary is not None
+    assert summary.state == "failed"
+    assert summary.phase == "interrupted"
+    assert summary.events[-1].event_type == "process_restarted"
+    assert summary.events[-1].reason_code == "process_restarted"
+
+
 class _FakeSession:
     def __init__(self, record: ExplorationTaskRecord) -> None:
         self._record = record
@@ -67,3 +81,17 @@ def _record(*, state: str) -> ExplorationTaskRecord:
         ],
         schema_version="1.0",
     )
+
+
+def _interrupted_record() -> ExplorationTaskRecord:
+    record = _record(state="failed")
+    record.phase = "interrupted"
+    record.events_json = [
+        {
+            "event_type": "process_restarted",
+            "reason_code": "process_restarted",
+            "checkpoint_id": None,
+            "occurred_at": "2026-08-19T00:00:00Z",
+        }
+    ]
+    return record

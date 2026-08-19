@@ -90,6 +90,7 @@ CollectorFactory = Callable[["_TaskRuntimeContext"], object]
 TerminalSummaryReader = Callable[[str], TaskSummary | None]
 TerminalSummaryListReader = Callable[[], list[TaskSummary]]
 TerminalKnowledgeSourceReader = Callable[[str], TaskKnowledgeSource | None]
+TerminalProjectionWriter = Callable[[TaskSummary, TaskEvidenceCollector], None]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -239,6 +240,7 @@ class ExplorationTaskService:
         terminal_summary_reader: TerminalSummaryReader | None = None,
         terminal_summary_list_reader: TerminalSummaryListReader | None = None,
         terminal_knowledge_source_reader: TerminalKnowledgeSourceReader | None = None,
+        terminal_projection_writer: TerminalProjectionWriter | None = None,
     ) -> None:
         self._registry = registry
         self._runtime_factory = runtime_factory
@@ -247,6 +249,7 @@ class ExplorationTaskService:
         self._terminal_summary_reader = terminal_summary_reader
         self._terminal_summary_list_reader = terminal_summary_list_reader
         self._terminal_knowledge_source_reader = terminal_knowledge_source_reader
+        self._terminal_projection_writer = terminal_projection_writer
         self._lock = RLock()
         self._executions: dict[str, _TaskExecution] = {}
         self._next_task_number = 1
@@ -692,6 +695,12 @@ class ExplorationTaskService:
         if execution.terminal_notified.is_set():
             return
         execution.terminal_notified.set()
+        writer = self._terminal_projection_writer
+        if writer is not None:
+            try:
+                writer(summary, execution.evidence_collector)
+            except Exception:
+                return
         callback = execution.on_terminal
         if callback is None:
             return

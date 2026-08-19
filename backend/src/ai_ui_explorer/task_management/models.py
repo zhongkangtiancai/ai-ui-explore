@@ -20,6 +20,7 @@ _SAFE_PHASES = frozenset(
         "partial",
         "failed",
         "cancelled",
+        "interrupted",
     }
 )
 _SAFE_EVENT_TYPES = frozenset(
@@ -37,6 +38,7 @@ _SAFE_EVENT_TYPES = frozenset(
         "authentication_rejected",
         "terminal_callback_failed",
         "event_withheld",
+        "process_restarted",
     }
 )
 _SAFE_REASON_CODES = frozenset(
@@ -48,6 +50,7 @@ _SAFE_REASON_CODES = frozenset(
         "cleanup_failure",
         "login_runtime_error",
         "reason_withheld",
+        "process_restarted",
     }
 )
 _SAFE_CHECKPOINT_ID = "checkpoint_available"

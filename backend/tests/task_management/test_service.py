@@ -300,6 +300,29 @@ def test_service_reads_persisted_terminal_knowledge_source_after_runtime_is_abse
     assert service.knowledge_source("task-99") == persisted
 
 
+def test_service_persists_terminal_projection_before_external_callback() -> None:
+    fakes = _Fakes()
+    persisted: list[str] = []
+    callbacks: list[str] = []
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=fakes.runner_factory,
+        terminal_projection_writer=lambda summary, _collector: persisted.append(
+            summary.task_id
+        ),
+    )
+
+    task = service.create(
+        _command(with_login=False),
+        on_terminal=lambda summary: callbacks.append(summary.task_id),
+    )
+
+    _wait_for(lambda: callbacks == [task.task_id])
+    assert persisted == [task.task_id]
+    assert callbacks == [task.task_id]
+
+
 def _wait_for(predicate: Callable[[], bool]) -> None:
     deadline = monotonic() + 2
     while monotonic() < deadline:
