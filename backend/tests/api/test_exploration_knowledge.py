@@ -21,7 +21,6 @@ from ai_ui_explorer.exploration_knowledge.models import (
 from ai_ui_explorer.exploration_knowledge.service import (
     ExplorationKnowledgeExportService,
 )
-from ai_ui_explorer.main import create_app
 from ai_ui_explorer.permission_comparison.models import (
     IdentityEvidenceBundle,
     IdentityRunState,
@@ -32,6 +31,7 @@ from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.models import SnapshotLimits
 from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
 from ai_ui_explorer.task_management.service import ExplorationTaskService, _TaskRuntimeContext
+from tests.api.app_factory import create_test_app
 
 if TYPE_CHECKING:
     from tests.api.fixtures.permission_comparison_site import PermissionComparisonSite
@@ -41,7 +41,7 @@ pytest_plugins = ("tests.api.fixtures.permission_comparison_site",)
 
 @pytest.fixture
 def client() -> TestClient:
-    app = create_app()
+    app = create_test_app()
     app.state.exploration_knowledge_export_service = ExplorationKnowledgeExportService(
         task_service=_TaskSources(),
         comparison_service=_ComparisonSources(),
@@ -207,7 +207,7 @@ def _local_role_app(site: PermissionComparisonSite):
         runner_factory=runner_factory,
     )
     comparison_service = PermissionComparisonService(task_service=task_service)
-    app = create_app()
+    app = create_test_app(task_service=task_service)
     app.state.exploration_task_service = task_service
     app.state.permission_comparison_service = comparison_service
     app.state.exploration_knowledge_export_service = ExplorationKnowledgeExportService(

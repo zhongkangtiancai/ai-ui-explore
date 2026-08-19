@@ -19,7 +19,6 @@ from ai_ui_explorer.exploration.runner import (
     ExplorationRunner,
 )
 from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
-from ai_ui_explorer.main import create_app
 from ai_ui_explorer.permission_comparison.evidence import project_snapshot
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.models import SnapshotLimits
@@ -39,6 +38,7 @@ from ai_ui_explorer.task_management.service import (
     TaskServiceError,
     _TaskRuntimeContext,
 )
+from tests.api.app_factory import create_test_app
 from tests.snapshot.conftest import LoginSite
 from tests.snapshot.factories import make_snapshot
 
@@ -127,7 +127,7 @@ def fake_service() -> _FakeTaskService:
 
 @pytest.fixture
 def client(fake_service: _FakeTaskService) -> TestClient:
-    app = create_app()
+    app = create_test_app(task_service=fake_service)
     app.dependency_overrides[get_task_service] = lambda: fake_service
     return TestClient(app)
 
@@ -320,7 +320,7 @@ def _page_view() -> TaskPageView:
 def test_local_login_task_completes_after_confirmation(login_site: LoginSite) -> None:
     runtime_closed = Event()
     service = _local_login_service(login_site, runtime_closed)
-    app = create_app()
+    app = create_test_app(task_service=service)
     app.state.exploration_task_service = service
 
     with TestClient(app) as local_client:
@@ -363,7 +363,7 @@ def test_local_browser_task_exposes_redacted_page_and_locator_details(
 ) -> None:
     runtime_closed = Event()
     service = _local_login_service(login_site, runtime_closed)
-    app = create_app()
+    app = create_test_app(task_service=service)
     app.state.exploration_task_service = service
 
     with TestClient(app) as local_client:

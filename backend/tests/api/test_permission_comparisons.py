@@ -17,7 +17,6 @@ from ai_ui_explorer.exploration.authentication import (
 from ai_ui_explorer.exploration.login_runtime import HumanLoginSession
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.runner import ExplorationCancellationToken, ExplorationRunner
-from ai_ui_explorer.main import create_app
 from ai_ui_explorer.permission_comparison.models import (
     IdentityEvidenceBundle,
     PermissionComparisonExport,
@@ -31,6 +30,7 @@ from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.models import SnapshotLimits
 from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
 from ai_ui_explorer.task_management.service import ExplorationTaskService, _TaskRuntimeContext
+from tests.api.app_factory import create_test_app
 
 if TYPE_CHECKING:
     from tests.api.fixtures.permission_comparison_site import PermissionComparisonSite
@@ -135,7 +135,7 @@ def comparison_service() -> _FakeComparisonService:
 
 @pytest.fixture
 def client(comparison_service: _FakeComparisonService) -> TestClient:
-    app = create_app()
+    app = create_test_app()
     app.dependency_overrides[get_permission_comparison_service] = (
         lambda: comparison_service
     )
@@ -320,7 +320,7 @@ def _comparison_app(site: PermissionComparisonSite):
         runtime_factory=runtime_factory,
         runner_factory=runner_factory,
     )
-    app = create_app()
+    app = create_test_app(task_service=task_service)
     app.state.exploration_task_service = task_service
     from ai_ui_explorer.permission_comparison.service import PermissionComparisonService
 
