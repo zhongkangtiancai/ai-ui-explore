@@ -179,6 +179,18 @@ def test_service_reads_persisted_terminal_comparison_after_runtime_is_absent() -
     assert service.get("comparison-99") == persisted
 
 
+def test_view_allows_restart_interrupted_comparison_without_conclusion() -> None:
+    view = PermissionComparisonView(
+        comparison_id="comparison-99",
+        state="failed",
+        identities={"identity-1": "failed", "identity-2": "created"},
+        result=None,
+    )
+
+    assert view.state == "failed"
+    assert view.result is None
+
+
 def test_service_lists_persisted_terminal_comparison_after_runtime_is_absent() -> None:
     persisted = PermissionComparisonView(
         comparison_id="comparison-99",

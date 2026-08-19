@@ -57,7 +57,7 @@ class PermissionComparisonView(DeepFrozenModel):
 
     comparison_id: str = Field(pattern=r"^comparison-[0-9]{1,20}$")
     state: str = Field(
-        pattern=r"^(created|paused_for_human|collecting|completed|partial|cancelled)$"
+        pattern=r"^(created|paused_for_human|collecting|completed|partial|failed|cancelled)$"
     )
     identities: dict[str, str] = Field(min_length=2, max_length=5)
     result: PermissionComparisonResult | None = None
