@@ -12,4 +12,5 @@ def test_app_factory_interrupts_unfinished_tasks_before_exposing_services() -> N
     app = create_app(settings=settings, persistence_repository=repository)
 
     repository.interrupt_nonterminal_tasks.assert_called_once()
+    repository.interrupt_nonterminal_comparisons.assert_called_once()
     assert app.state.exploration_task_service is not None

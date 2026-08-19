@@ -69,6 +69,23 @@ class SafeTaskRepository:
         with session_scope(self._session_factory) as session:
             session.merge(task_record_from_summary(summary))
 
+    def interrupt_nonterminal_comparisons(self, *, occurred_at: datetime) -> list[str]:
+        """Fail stale comparison indexes without producing an access conclusion."""
+        with session_scope(self._session_factory) as session:
+            records = session.scalars(
+                select(PermissionComparisonRecord).where(
+                    PermissionComparisonRecord.state.not_in(_TERMINAL_TASK_STATES)
+                )
+            ).all()
+            for record in records:
+                record.state = "failed"
+                record.updated_at = occurred_at
+                record.identities_json = {
+                    identity_id: "failed" for identity_id in record.identities_json
+                }
+                record.result_json = None
+            return [record.comparison_id for record in records]
+
     def get_terminal_task_summary(self, task_id: str) -> TaskSummary | None:
         """Read one terminal public summary without exposing nonterminal runtime state."""
         session = self._session_factory()

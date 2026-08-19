@@ -19,7 +19,10 @@ from ai_ui_explorer.exploration.runner import (
     ExplorationRunner,
 )
 from ai_ui_explorer.exploration_knowledge.service import ExplorationKnowledgeExportService
-from ai_ui_explorer.permission_comparison.service import PermissionComparisonService
+from ai_ui_explorer.permission_comparison.service import (
+    PermissionComparisonService,
+    PermissionComparisonView,
+)
 from ai_ui_explorer.persistence.database import (
     create_database_engine,
     create_session_factory,
@@ -56,13 +59,16 @@ def create_app(
         allow_headers=["*"],
     )
     app.dependency_overrides[get_settings] = lambda: settings
+    repository = persistence_repository
     if task_service is None:
-        repository = persistence_repository or _create_persistence_repository(settings)
+        repository = repository or _create_persistence_repository(settings)
         repository.interrupt_nonterminal_tasks(occurred_at=datetime.now(UTC))
+        repository.interrupt_nonterminal_comparisons(occurred_at=datetime.now(UTC))
         task_service = _create_task_service(repository=repository)
     app.state.exploration_task_service = task_service
-    comparison_service = comparison_service or PermissionComparisonService(
-        task_service=task_service
+    comparison_service = comparison_service or _create_comparison_service(
+        task_service=task_service,
+        repository=repository,
     )
     app.state.permission_comparison_service = comparison_service
     app.state.exploration_knowledge_export_service = (
@@ -161,6 +167,46 @@ def _create_task_service(
         terminal_page_detail_reader=repository.get_terminal_task_page_detail,
         terminal_export_reader=repository.get_terminal_task_evidence_export,
         terminal_workflow_reader=repository.get_terminal_task_workflow,
+    )
+
+
+def _create_comparison_service(
+    *,
+    task_service: ExplorationTaskService,
+    repository: SafeTaskRepository | None,
+) -> PermissionComparisonService:
+    """Build comparison orchestration with persistence only for production wiring."""
+    if repository is None:
+        return PermissionComparisonService(task_service=task_service)
+
+    def persist_view(
+        view: PermissionComparisonView,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> None:
+        repository.persist_comparison_view(
+            view=view,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+    def persist_terminal_view(
+        view: PermissionComparisonView,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> None:
+        repository.persist_terminal_comparison(
+            view=view,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+    return PermissionComparisonService(
+        task_service=task_service,
+        comparison_view_writer=persist_view,
+        terminal_view_writer=persist_terminal_view,
+        terminal_view_reader=repository.get_terminal_comparison_view,
+        terminal_view_list_reader=repository.list_terminal_comparison_views,
     )
 
 
