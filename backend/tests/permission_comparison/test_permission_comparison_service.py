@@ -191,6 +191,22 @@ def test_view_allows_restart_interrupted_comparison_without_conclusion() -> None
     assert view.result is None
 
 
+def test_service_persists_created_comparison_index_before_child_task_starts() -> None:
+    tasks = _FakeTaskService()
+    persisted_states: list[str] = []
+    service = PermissionComparisonService(
+        task_service=tasks,
+        comparison_view_writer=lambda view, _created_at, _updated_at: persisted_states.append(
+            view.state
+        ),
+    )
+
+    comparison = service.create(_command())
+
+    assert comparison.state == "paused_for_human"
+    assert persisted_states == ["created"]
+
+
 def test_service_lists_persisted_terminal_comparison_after_runtime_is_absent() -> None:
     persisted = PermissionComparisonView(
         comparison_id="comparison-99",

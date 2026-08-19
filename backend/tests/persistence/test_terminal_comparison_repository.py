@@ -52,6 +52,27 @@ def test_repository_rejects_comparison_without_result_before_transaction() -> No
     assert session.committed is False
 
 
+def test_repository_persists_nonterminal_comparison_index_without_result() -> None:
+    session = _FakeSession()
+    repository = SafeTaskRepository(session_factory=lambda: session)  # type: ignore[arg-type]
+    timestamp = datetime(2026, 8, 19, tzinfo=UTC)
+    view = PermissionComparisonView(
+        comparison_id="comparison-1",
+        state="created",
+        identities={"identity-1": "created", "identity-2": "created"},
+        result=None,
+    )
+
+    repository.persist_comparison_view(
+        view=view,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+
+    assert [type(record) for record in session.merged] == [PermissionComparisonRecord]
+    assert session.merged[0].result_json is None  # type: ignore[union-attr]
+
+
 class _FakeSession:
     def __init__(self) -> None:
         self.merged: list[object] = []

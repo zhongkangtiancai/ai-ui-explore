@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from threading import RLock
 from typing import Protocol
 
@@ -32,6 +33,9 @@ from ai_ui_explorer.task_management.service import (
 
 class PermissionComparisonServiceError(RuntimeError):
     """Fixed, non-sensitive comparison service error surface."""
+
+
+ComparisonViewWriter = Callable[["PermissionComparisonView", datetime, datetime], None]
 
 
 class CreatePermissionComparisonCommand(DeepFrozenModel):
@@ -113,11 +117,13 @@ class PermissionComparisonService:
         comparator: PermissionComparator | None = None,
         terminal_view_reader: Callable[[str], PermissionComparisonView | None] | None = None,
         terminal_view_list_reader: Callable[[], list[PermissionComparisonView]] | None = None,
+        comparison_view_writer: ComparisonViewWriter | None = None,
     ) -> None:
         self._task_service = task_service
         self._comparator = comparator or PermissionComparator()
         self._terminal_view_reader = terminal_view_reader
         self._terminal_view_list_reader = terminal_view_list_reader
+        self._comparison_view_writer = comparison_view_writer
         self._lock = RLock()
         self._comparisons: dict[str, _ComparisonHandle] = {}
         self._next_comparison_number = 1
@@ -139,6 +145,21 @@ class PermissionComparisonService:
         )
         with self._lock:
             self._comparisons[comparison_id] = handle
+        writer = self._comparison_view_writer
+        if writer is not None:
+            timestamp = datetime.now(UTC)
+            try:
+                writer(
+                    _view(comparison_id, handle),
+                    timestamp,
+                    timestamp,
+                )
+            except Exception as error:
+                with self._lock:
+                    self._comparisons.pop(comparison_id, None)
+                raise PermissionComparisonServiceError(
+                    "Comparison cannot be created."
+                ) from error
         self._start_next(comparison_id)
         return self.get(comparison_id)
 

@@ -341,6 +341,27 @@ class SafeTaskRepository:
                 )
             )
 
+    def persist_comparison_view(
+        self,
+        *,
+        view: PermissionComparisonView,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> None:
+        """Persist a minimal comparison lifecycle index without a conclusion."""
+        with session_scope(self._session_factory) as session:
+            session.merge(
+                PermissionComparisonRecord(
+                    comparison_id=view.comparison_id,
+                    state=view.state,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    identities_json=view.identities,
+                    result_json=None,
+                    schema_version=_TASK_PROJECTION_SCHEMA_VERSION,
+                )
+            )
+
 
 def task_record_from_summary(summary: TaskSummary) -> ExplorationTaskRecord:
     """Project a public task summary into ORM fields without runtime handles."""
