@@ -99,6 +99,33 @@ class SafeTaskRepository:
                 )
             )
 
+    def persist_terminal_comparison(
+        self,
+        *,
+        view: PermissionComparisonView,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> None:
+        """Atomically persist a terminal comparison and its export source index."""
+        if view.result is None or view.state not in _TERMINAL_TASK_STATES:
+            raise PersistenceProjectionError("Persistence projection unavailable")
+        record = comparison_record_from_view(
+            view,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+        with session_scope(self._session_factory) as session:
+            session.merge(record)
+            session.merge(
+                ExplorationKnowledgeSourceRecord(
+                    source_id=view.comparison_id,
+                    source_kind="comparison",
+                    state=view.state,
+                    updated_at=updated_at,
+                    schema_version=_TASK_PROJECTION_SCHEMA_VERSION,
+                )
+            )
+
 
 def task_record_from_summary(summary: TaskSummary) -> ExplorationTaskRecord:
     """Project a public task summary into ORM fields without runtime handles."""
