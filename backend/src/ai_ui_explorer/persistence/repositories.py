@@ -7,12 +7,17 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
 from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
 from ai_ui_explorer.persistence.database import session_scope
 from ai_ui_explorer.persistence.models import (
+    ExplorationKnowledgeSourceRecord,
     ExplorationTaskRecord,
     PermissionComparisonRecord,
+    TaskEvidenceExportRecord,
+    TaskWorkflowRecord,
 )
+from ai_ui_explorer.task_management.evidence import ExplorationEvidenceExport
 from ai_ui_explorer.task_management.models import TaskSummary
 
 _TASK_PROJECTION_SCHEMA_VERSION = "1.0"
@@ -51,6 +56,48 @@ class SafeTaskRepository:
                     },
                 ]
             return [record.task_id for record in records]
+
+    def persist_terminal_task(
+        self,
+        *,
+        summary: TaskSummary,
+        evidence: ExplorationEvidenceExport,
+        workflow: TaskWorkflowExport,
+    ) -> None:
+        """Atomically persist one fully projected, terminal task result."""
+        if (
+            str(summary.state) not in _TERMINAL_TASK_STATES
+            or evidence.task_id != summary.task_id
+            or str(evidence.state) != str(summary.state)
+            or workflow.task_id != summary.task_id
+            or workflow.state != str(summary.state)
+        ):
+            raise PersistenceProjectionError("Persistence projection unavailable")
+        with session_scope(self._session_factory) as session:
+            session.merge(task_record_from_summary(summary))
+            session.merge(
+                TaskEvidenceExportRecord(
+                    task_id=summary.task_id,
+                    payload=evidence.model_dump(mode="json"),
+                    schema_version=evidence.schema_version,
+                )
+            )
+            session.merge(
+                TaskWorkflowRecord(
+                    task_id=summary.task_id,
+                    payload=workflow.model_dump(mode="json"),
+                    schema_version=_TASK_PROJECTION_SCHEMA_VERSION,
+                )
+            )
+            session.merge(
+                ExplorationKnowledgeSourceRecord(
+                    source_id=summary.task_id,
+                    source_kind="task",
+                    state=str(summary.state),
+                    updated_at=summary.updated_at,
+                    schema_version=_TASK_PROJECTION_SCHEMA_VERSION,
+                )
+            )
 
 
 def task_record_from_summary(summary: TaskSummary) -> ExplorationTaskRecord:
