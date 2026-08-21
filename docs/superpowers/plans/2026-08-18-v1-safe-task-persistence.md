@@ -8,6 +8,8 @@
 
 **技术栈：** Python 3.12、FastAPI、Pydantic v2、SQLAlchemy 2、psycopg 3、Alembic、PostgreSQL、pytest、Vue 3、TypeScript、Vitest、Playwright。
 
+**实施记录（2026-08-21）：** PostgreSQL-only 配置、迁移、白名单 DTO/Repository、任务与比较终态投影及回读、启动中断恢复、统一知识包持久化来源和 Vue 安全终态展示均已在单位、服务、API 或前端测试中覆盖。集成测试要求同时设置 `AI_UI_EXPLORER_TEST_DATABASE_URL` 与 `AI_UI_EXPLORER_RUN_DATABASE_INTEGRATION_TESTS=1`，否则安全跳过。已在隔离 PostgreSQL 18.6 上实际通过迁移、终态回读、任务/比较重启恢复和本地虚构登录站点的真实 Chromium 服务重建回读验收；测试仅使用脱敏投影，重建读取不创建浏览器、Runner 或登录态。
+
 **前置约束：**
 
 - 只支持 PostgreSQL；`AI_UI_EXPLORER_DATABASE_URL` 缺失、格式不合法或数据库不可连接时应用启动失败，不回退内存伪持久化。

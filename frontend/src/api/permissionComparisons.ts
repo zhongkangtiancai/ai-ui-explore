@@ -6,6 +6,7 @@ export type ComparisonState =
   | 'collecting'
   | 'completed'
   | 'partial'
+  | 'failed'
   | 'cancelled'
 
 export interface ExplorationBudget {

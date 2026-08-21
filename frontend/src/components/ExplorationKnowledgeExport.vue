@@ -48,7 +48,7 @@ async function download(): Promise<void> {
     <p class="section-kicker">UNIFIED KNOWLEDGE PACKAGE</p>
     <h2 id="knowledge-export-title">导出统一探索知识包</h2>
     <p class="help-text">
-      仅列出当前进程中已结束且已脱敏的任务与权限对比来源。部分采集仅表示证据不完整，不代表权限结论；服务重启后来源不可恢复。
+      仅列出已结束且已脱敏的任务与权限对比来源。部分采集仅表示证据不完整，不代表权限结论；服务重启后仍可查询已持久化的终态来源，登录态不会保存或恢复。
     </p>
     <p v-if="isLoading" class="help-text">正在读取可导出来源…</p>
     <ul v-else class="source-list">

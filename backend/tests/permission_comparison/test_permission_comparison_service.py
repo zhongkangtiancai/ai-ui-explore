@@ -242,6 +242,32 @@ def test_service_persists_terminal_comparison_result_after_finalization() -> Non
     assert persisted[-1].result is not None
 
 
+def test_service_marks_comparison_failed_when_terminal_projection_cannot_persist() -> None:
+    tasks = _FakeTaskService()
+    service = PermissionComparisonService(
+        task_service=tasks,
+        terminal_view_writer=lambda _view, _created_at, _updated_at, _labels: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        ),
+    )
+    comparison = service.create(_command())
+
+    _wait_for(
+        lambda: service.get(comparison.comparison_id).identities["identity-1"]
+        == "paused_for_human"
+    )
+    service.confirm_login(comparison.comparison_id, "identity-1")
+    _wait_for(
+        lambda: service.get(comparison.comparison_id).identities["identity-2"]
+        == "paused_for_human"
+    )
+    service.confirm_login(comparison.comparison_id, "identity-2")
+    _wait_for(lambda: service.get(comparison.comparison_id).state == "failed")
+
+    failed = service.get(comparison.comparison_id)
+    assert failed.result is None
+
+
 def test_service_lists_persisted_terminal_comparison_after_runtime_is_absent() -> None:
     persisted = PermissionComparisonView(
         comparison_id="comparison-99",

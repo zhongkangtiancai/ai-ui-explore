@@ -49,6 +49,7 @@ _SAFE_REASON_CODES = frozenset(
         "user_cancelled",
         "cleanup_failure",
         "login_runtime_error",
+        "persistence_failure",
         "reason_withheld",
         "process_restarted",
     }
@@ -215,6 +216,11 @@ class ManagedTask:
         """Fail the task through the handle's synchronization boundary."""
         with self._lock:
             self._task.fail(reason_code=reason_code)
+
+    def fail_after_terminal_persistence_error(self) -> None:
+        """Never expose a successful terminal result that was not persisted."""
+        with self._lock:
+            self._task.fail_after_terminal_persistence_error()
 
     def cancel(self, *, reason_code: str) -> None:
         """Cancel the task through the handle's synchronization boundary."""

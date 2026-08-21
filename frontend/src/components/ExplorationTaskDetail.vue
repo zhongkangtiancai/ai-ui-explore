@@ -18,6 +18,12 @@ const isTerminal = computed(() =>
   ['completed', 'partial', 'failed', 'cancelled'].includes(props.task.state),
 )
 const canConfirmLogin = computed(() => props.task.state === 'paused_for_human')
+const wasInterruptedByRestart = computed(() =>
+  props.task.events.some(
+    (event) =>
+      event.event_type === 'process_restarted' && event.reason_code === 'process_restarted',
+  ),
+)
 </script>
 
 <template>
@@ -32,6 +38,9 @@ const canConfirmLogin = computed(() => props.task.state === 'paused_for_human')
 
     <p v-if="canConfirmLogin" class="human-login-help">
       请在本机可见浏览器完成登录，再确认继续验证。不要在此页面输入或上传登录信息。
+    </p>
+    <p v-else-if="wasInterruptedByRestart" class="restart-interrupted" role="status">
+      服务重启时任务尚未完成，已安全终止且不能继续。
     </p>
 
     <div v-if="canConfirmLogin || !isTerminal" class="task-actions">
@@ -129,6 +138,7 @@ h3 {
 }
 
 .human-login-help,
+.restart-interrupted,
 .source-summary,
 li {
   color: #c8d7e3;

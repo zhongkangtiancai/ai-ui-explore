@@ -1,7 +1,5 @@
 from datetime import UTC, datetime
 
-import pytest
-
 from ai_ui_explorer.permission_comparison.models import (
     IdentityEvidenceBundle,
     IdentityRunState,
@@ -10,7 +8,6 @@ from ai_ui_explorer.permission_comparison.models import (
 from ai_ui_explorer.permission_comparison.service import PermissionComparisonView
 from ai_ui_explorer.persistence.models import PermissionComparisonRecord
 from ai_ui_explorer.persistence.repositories import (
-    PersistenceProjectionError,
     comparison_record_from_view,
     comparison_view_from_record,
 )
@@ -30,7 +27,7 @@ def test_comparison_projection_round_trips_terminal_result() -> None:
     assert comparison_view_from_record(record) == view
 
 
-def test_comparison_projection_rejects_terminal_record_without_result() -> None:
+def test_comparison_projection_reads_failed_terminal_record_without_result() -> None:
     timestamp = datetime(2026, 8, 18, tzinfo=UTC)
     record = PermissionComparisonRecord(
         comparison_id="comparison-1",
@@ -42,8 +39,12 @@ def test_comparison_projection_rejects_terminal_record_without_result() -> None:
         schema_version="1.0",
     )
 
-    with pytest.raises(PersistenceProjectionError, match="Persistence projection unavailable"):
-        comparison_view_from_record(record)
+    assert comparison_view_from_record(record) == PermissionComparisonView(
+        comparison_id="comparison-1",
+        state="failed",
+        identities={"identity-1": "failed", "identity-2": "failed"},
+        result=None,
+    )
 
 
 def _completed_view() -> PermissionComparisonView:

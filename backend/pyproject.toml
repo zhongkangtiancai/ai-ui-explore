@@ -40,7 +40,7 @@ where = ["src"]
 "ai_ui_explorer" = ["py.typed", "snapshot/schema/*.json", "knowledge/schema/*.json"]
 
 [tool.pytest.ini_options]
-addopts = "-q -p no:cacheprovider"
+addopts = "-q -p no:cacheprovider --import-mode=importlib"
 pythonpath = ["src"]
 testpaths = ["tests"]
 

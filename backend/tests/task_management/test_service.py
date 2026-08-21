@@ -327,6 +327,28 @@ def test_service_persists_terminal_projection_before_external_callback() -> None
     assert callbacks == [task.task_id]
 
 
+def test_service_marks_task_failed_when_terminal_projection_cannot_persist() -> None:
+    fakes = _Fakes()
+    callbacks: list[TaskSummary] = []
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=fakes.runner_factory,
+        terminal_projection_writer=lambda _summary, _collector: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        ),
+    )
+
+    task = service.create(_command(with_login=False), on_terminal=callbacks.append)
+
+    _wait_for(lambda: len(callbacks) == 1)
+    assert callbacks[0].task_id == task.task_id
+    assert callbacks[0].state == "failed"
+    assert callbacks[0].phase == "failed"
+    assert callbacks[0].events[-1].event_type == "task_failed"
+    assert callbacks[0].events[-1].reason_code == "persistence_failure"
+
+
 def test_service_reads_all_terminal_evidence_views_after_runtime_is_absent() -> None:
     timestamp = datetime(2026, 8, 19, tzinfo=UTC)
     reference = EvidenceReference(

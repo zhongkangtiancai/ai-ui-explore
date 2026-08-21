@@ -392,7 +392,9 @@ class PermissionComparisonService:
             try:
                 writer(view, timestamp, timestamp, _identity_labels(handle))
             except Exception:
-                pass
+                with handle.lock:
+                    handle.result = None
+                    handle.state = "failed"
 
     def _require_handle(self, comparison_id: str) -> _ComparisonHandle:
         with self._lock:

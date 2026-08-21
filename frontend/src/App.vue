@@ -76,7 +76,7 @@ function stopTaskPolling(): void {
 }
 
 function isTerminalComparison(value: PermissionComparison): boolean {
-  return ['completed', 'partial', 'cancelled'].includes(value.state)
+  return ['completed', 'partial', 'failed', 'cancelled'].includes(value.state)
 }
 
 function applyComparison(value: PermissionComparison): void {
@@ -240,7 +240,9 @@ async function handleComparisonDownload(): Promise<void> {
 
     <section class="boundary">
       <h2>当前范围</h2>
-      <p>当前版本提供受控只读探索的本地任务管理。服务重启后，任务、结果和登录态均不可恢复。</p>
+      <p>
+        当前版本提供受控只读探索的本地任务管理。服务重启后仅可查询已持久化的脱敏终态结果；运行中的浏览器任务会安全标记为失败，登录态不可恢复。
+      </p>
     </section>
 
     <nav class="mode-switch" aria-label="探索模式">

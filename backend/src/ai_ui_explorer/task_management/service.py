@@ -162,6 +162,11 @@ class _TaskRuntimeContext:
     def complete(self) -> None:
         self._managed.complete()
 
+    def fail_after_terminal_persistence_error(self) -> TaskSummary:
+        self._managed.fail_after_terminal_persistence_error()
+        self._managed.set_phase("failed")
+        return self._managed.summary()
+
     def create_session_collector(
         self,
         *,
@@ -736,7 +741,7 @@ class ExplorationTaskService:
             try:
                 writer(summary, execution.evidence_collector)
             except Exception:
-                return
+                summary = execution.context.fail_after_terminal_persistence_error()
         callback = execution.on_terminal
         if callback is None:
             return

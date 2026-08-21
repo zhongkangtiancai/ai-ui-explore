@@ -58,4 +58,19 @@ describe('PermissionComparisonDetail', () => {
     expect(wrapper.emitted('cancel')).toEqual([[]])
     expect(wrapper.emitted('download')).toEqual([[]])
   })
+
+  it('does not offer cancellation for a failed terminal comparison', () => {
+    const wrapper = mount(PermissionComparisonDetail, {
+      props: {
+        comparison: {
+          ...inconclusiveComparison,
+          state: 'failed',
+          identities: { 'identity-1': 'failed', 'identity-2': 'failed' },
+          result: null,
+        },
+      },
+    })
+
+    expect(wrapper.find('[data-test="cancel-comparison"]').exists()).toBe(false)
+  })
 })

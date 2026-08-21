@@ -269,4 +269,36 @@ describe('App', () => {
     wrapper.unmount()
     vi.useRealTimers()
   })
+
+  it('stops polling after a failed comparison recovered from persistence', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'ok',
+          service: 'backend',
+          version: '0.1.0',
+          environment: 'development',
+        }),
+      }),
+    )
+    vi.mocked(createPermissionComparison).mockResolvedValue({
+      ...completedComparison,
+      state: 'failed',
+      identities: { 'identity-1': 'failed', 'identity-2': 'failed' },
+      result: null,
+    })
+
+    const wrapper = mount(App)
+    await wrapper.get('[data-test="comparison-mode"]').trigger('click')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(4000)
+
+    expect(fetchPermissionComparison).not.toHaveBeenCalled()
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
 })

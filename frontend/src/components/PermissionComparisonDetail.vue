@@ -38,7 +38,7 @@ const differences = computed(() => {
       </li>
     </ul>
     <button
-      v-if="!['completed', 'partial', 'cancelled'].includes(comparison.state)"
+      v-if="!['completed', 'partial', 'failed', 'cancelled'].includes(comparison.state)"
       data-test="cancel-comparison"
       @click="emit('cancel')"
     >

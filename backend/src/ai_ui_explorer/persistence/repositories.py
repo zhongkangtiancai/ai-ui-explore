@@ -89,9 +89,26 @@ class SafeTaskRepository:
             for record in records:
                 record.state = "failed"
                 record.updated_at = occurred_at
-                record.identities_json = {
-                    identity_id: "failed" for identity_id in record.identities_json
-                }
+                if "schema_version" in record.identities_json:
+                    try:
+                        metadata = comparison_identity_metadata_from_record(record)
+                    except PersistenceProjectionError:
+                        record.identities_json = {
+                            identity_id: "failed" for identity_id in record.identities_json
+                        }
+                    else:
+                        record.identities_json = PersistedComparisonIdentityMetadata(
+                            schema_version="1.0",
+                            states={
+                                identity_id: "failed"
+                                for identity_id in metadata.states
+                            },
+                            labels=metadata.labels,
+                        ).model_dump(mode="json")
+                else:
+                    record.identities_json = {
+                        identity_id: "failed" for identity_id in record.identities_json
+                    }
                 record.result_json = None
             return [record.comparison_id for record in records]
 
