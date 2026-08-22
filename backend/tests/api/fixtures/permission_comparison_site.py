@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Lock, Thread
-from urllib.parse import parse_qs, urlsplit
+from threading import Lock
 
 import pytest
 
+from ai_ui_explorer.acceptance.permission_comparison_site import (
+    PermissionAcceptanceSite as RunningPermissionAcceptanceSite,
+)
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 
 
@@ -44,80 +45,11 @@ class PermissionComparisonSite:
         return all(bool(object.__getattribute__(browser, "_closed")) for browser in self.browsers)
 
 
-class _RoleHandler(BaseHTTPRequestHandler):
-    def log_message(self, _format: str, *_args: object) -> None:
-        pass
-
-    def do_GET(self) -> None:
-        parsed = urlsplit(self.path)
-        role = parse_qs(parsed.query).get("role", [""])[0]
-        if parsed.path == "/login-complete":
-            self.send_response(302)
-            self.send_header("Set-Cookie", f"fixture_role={role}; Path=/")
-            self.send_header("Location", "/dashboard.html")
-            self.end_headers()
-            return
-        if parsed.path == "/collector-failure.html":
-            self.connection.close()
-            return
-        role = _cookie_role(self.headers.get("Cookie", ""))
-        body = _page(parsed.path, role)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(body.encode("utf-8"))
-
-
-def _page(path: str, role: str) -> str:
-    if path == "/login.html":
-        return (
-            "<!doctype html>"
-            "<button id='login-admin' "
-            "onclick=\"location='/login-complete?role=admin'\">Admin</button>"
-            "<button id='login-member' "
-            "onclick=\"location='/login-complete?role=member'\">Member</button>"
-            "<button id='login-restricted' "
-            "onclick=\"location='/login-complete?role=restricted'\">Restricted</button>"
-        )
-    if path == "/admin.html" and role == "admin":
-        return "<!doctype html><main id='signed-in-marker'><h1>Admin console</h1></main>"
-    if path == "/details.html":
-        return (
-            "<!doctype html><main id='signed-in-marker'><h1>Readonly details</h1>"
-            "<p>Observed fixture detail only</p></main>"
-        )
-    links = "<a href='/admin.html'>Admin console</a>" if role == "admin" else ""
-    if role == "restricted":
-        links = "<a href='/collector-failure.html'>Restricted area</a>"
-    readonly_controls = (
-        "<button id='overview-tab' role='tab' aria-selected='true' "
-        "onclick=\"document.querySelector('#tab-content').textContent='Overview selected'\">"
-        "Overview</button>"
-        "<a id='view-details' href='/details.html'>查看详情</a>"
-        "<button id='dangerous-submit' type='submit'>提交订单</button>"
-        "<p id='tab-content'>Initial overview</p>"
-    ) if role == "admin" else ""
-    role_only = "<p id='admin-only'>Admin-only observation</p>" if role == "admin" else ""
-    return (
-        f"<!doctype html><main id='signed-in-marker'><h1>Dashboard {role}</h1>"
-        f"{readonly_controls}{role_only}{links}</main>"
-    )
-
-
-def _cookie_role(cookie_header: str) -> str:
-    for item in cookie_header.split(";"):
-        name, separator, value = item.strip().partition("=")
-        if separator and name == "fixture_role":
-            return value
-    return ""
-
-
 @pytest.fixture
 def permission_comparison_site() -> Generator[PermissionComparisonSite]:
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _RoleHandler)
-    thread = Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    origin = f"http://127.0.0.1:{server.server_port}"
+    acceptance_site = RunningPermissionAcceptanceSite(port=0)
+    acceptance_site.start()
+    origin = acceptance_site.origin
     site = PermissionComparisonSite(
         origin=origin,
         policy=NavigationPolicy(
@@ -129,6 +61,4 @@ def permission_comparison_site() -> Generator[PermissionComparisonSite]:
     try:
         yield site
     finally:
-        server.shutdown()
-        server.server_close()
-        thread.join()
+        acceptance_site.close()

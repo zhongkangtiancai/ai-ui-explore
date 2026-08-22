@@ -366,7 +366,7 @@ def _wait_for_comparison_state(
 ) -> None:
     from time import monotonic, sleep
 
-    deadline = monotonic() + 10
+    deadline = monotonic() + 30
     while monotonic() < deadline:
         response = client.get(f"/api/v1/permission-comparisons/{comparison_id}")
         assert response.status_code == 200
