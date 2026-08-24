@@ -235,3 +235,6 @@ KnowledgeGap、单元素定位器或 JSON 体积预算时，结果为 `partial`�
 
 项目事实基线从 [项目上下文](docs/00-project-context.md) 开始阅读。研发路线见
 [研发路线](docs/07-roadmap.md)。
+
+本地虚构角色站上的人工登录、权限比较、取消和安全导出验收见
+[Sprint 6 权限比较本地用户验收](docs/user-acceptance/sprint6-permission-comparison-cases.md)。该验收只说明受控身份下的 UI 可见性观察，不证明业务授权、后端数据权限或真实 SSO/MFA 可用性。

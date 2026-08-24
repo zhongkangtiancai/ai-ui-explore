@@ -222,6 +222,9 @@ def test_local_multirole_comparison_reports_observed_admin_difference(
             f"/api/v1/permission-comparisons/{comparison_id}/identities/identity-2/confirm-login"
         ).status_code == 200
         terminal = _wait_for_terminal_comparison(local_client, comparison_id)
+        export = local_client.get(
+            f"/api/v1/permission-comparisons/{comparison_id}/export"
+        )
 
     differences = terminal["result"]["differences"]
     difference = next(
@@ -234,6 +237,9 @@ def test_local_multirole_comparison_reports_observed_admin_difference(
     )
     assert terminal["state"] == "completed"
     assert difference["reliability"] == "high"
+    assert export.status_code == 200
+    assert "fixture_role" not in export.text
+    assert "storage_state" not in export.text.lower()
     assert permission_comparison_site.all_contexts_closed()
 
 
@@ -262,6 +268,35 @@ def test_restricted_identity_is_inconclusive_and_contexts_close(
 
     assert terminal["state"] == "partial"
     assert all(item["reliability"] == "inconclusive" for item in terminal["result"]["differences"])
+    assert permission_comparison_site.all_contexts_closed()
+
+
+def test_cancelled_local_comparison_does_not_start_second_identity(
+    permission_comparison_site: PermissionComparisonSite,
+) -> None:
+    """Cancellation while the first browser is paused prevents the next login."""
+    app = _comparison_app(permission_comparison_site)
+    with TestClient(app) as local_client:
+        created = local_client.post(
+            "/api/v1/permission-comparisons",
+            json=_local_payload(permission_comparison_site),
+        )
+        assert created.status_code == 202
+        comparison_id = created.json()["comparison_id"]
+        _wait_for_comparison_state(
+            local_client,
+            comparison_id,
+            "identity-1",
+            "paused_for_human",
+        )
+
+        cancelled = local_client.post(
+            f"/api/v1/permission-comparisons/{comparison_id}/cancel"
+        )
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["state"] == "cancelled"
+    assert cancelled.json()["identities"]["identity-2"] == "created"
     assert permission_comparison_site.all_contexts_closed()
 
 
