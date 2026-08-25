@@ -8,6 +8,7 @@ const emit = defineEmits<{
 }>()
 
 const needsManualLogin = ref(false)
+const allowLocalHttp = ref(false)
 const form = reactive({
   moduleId: '',
   moduleUrl: '',
@@ -46,7 +47,7 @@ function submitTask(): void {
           checkpoint_css_selector: form.checkpointCss.trim(),
         }
       : undefined,
-    allow_local_http: false,
+    allow_local_http: allowLocalHttp.value,
   })
 }
 </script>
@@ -116,6 +117,11 @@ function submitTask(): void {
       <label class="manual-login-option">
         <input v-model="needsManualLogin" data-test="manual-login" type="checkbox" />
         需要人工登录
+      </label>
+
+      <label class="manual-login-option">
+        <input v-model="allowLocalHttp" data-test="allow-local-http" type="checkbox" />
+        仅本地验收：允许 HTTP（127.0.0.1 / localhost）
       </label>
 
       <fieldset v-if="needsManualLogin" class="authentication-fields">

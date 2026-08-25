@@ -10,16 +10,31 @@ import {
   type CreateExplorationTaskRequest,
   type TaskSummary,
 } from './api/explorationTasks'
+import {
+  cancelPermissionComparison,
+  confirmPermissionComparisonLogin,
+  createPermissionComparison,
+  downloadPermissionComparison,
+  fetchPermissionComparison,
+  type CreatePermissionComparisonRequest,
+  type PermissionComparison,
+} from './api/permissionComparisons'
 import ExplorationTaskDetail from './components/ExplorationTaskDetail.vue'
 import ExplorationTaskForm from './components/ExplorationTaskForm.vue'
+import ExplorationKnowledgeExport from './components/ExplorationKnowledgeExport.vue'
+import PermissionComparisonDetail from './components/PermissionComparisonDetail.vue'
+import PermissionComparisonForm from './components/PermissionComparisonForm.vue'
 
 type ConnectionState = 'loading' | 'success' | 'error'
 
 const connectionState = ref<ConnectionState>('loading')
 const health = ref<HealthResponse | null>(null)
 const task = ref<TaskSummary | null>(null)
+const comparison = ref<PermissionComparison | null>(null)
+const mode = ref<'task' | 'comparison'>('task')
 const taskError = ref(false)
 let taskPollTimer: ReturnType<typeof setInterval> | null = null
+let comparisonPollTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(async () => {
   try {
@@ -31,6 +46,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(stopTaskPolling)
+onBeforeUnmount(stopComparisonPolling)
 
 function isTerminalTask(taskSummary: TaskSummary): boolean {
   return ['completed', 'partial', 'failed', 'cancelled'].includes(taskSummary.state)
@@ -59,6 +75,41 @@ function stopTaskPolling(): void {
   }
 }
 
+function isTerminalComparison(value: PermissionComparison): boolean {
+  return ['completed', 'partial', 'failed', 'cancelled'].includes(value.state)
+}
+
+function applyComparison(value: PermissionComparison): void {
+  comparison.value = value
+  if (isTerminalComparison(value)) stopComparisonPolling()
+  else startComparisonPolling()
+}
+
+function startComparisonPolling(): void {
+  stopComparisonPolling()
+  comparisonPollTimer = setInterval(() => void refreshComparison(), 2000)
+}
+
+function stopComparisonPolling(): void {
+  if (comparisonPollTimer !== null) {
+    clearInterval(comparisonPollTimer)
+    comparisonPollTimer = null
+  }
+}
+
+async function refreshComparison(): Promise<void> {
+  if (comparison.value === null || isTerminalComparison(comparison.value)) {
+    stopComparisonPolling()
+    return
+  }
+  try {
+    applyComparison(await fetchPermissionComparison(comparison.value.comparison_id))
+  } catch {
+    taskError.value = true
+    stopComparisonPolling()
+  }
+}
+
 async function refreshTask(): Promise<void> {
   if (task.value === null || isTerminalTask(task.value)) {
     stopTaskPolling()
@@ -77,6 +128,15 @@ async function handleCreate(payload: CreateExplorationTaskRequest): Promise<void
   taskError.value = false
   try {
     applyTask(await createExplorationTask(payload))
+  } catch {
+    taskError.value = true
+  }
+}
+
+async function handleComparisonCreate(payload: CreatePermissionComparisonRequest): Promise<void> {
+  taskError.value = false
+  try {
+    applyComparison(await createPermissionComparison(payload))
   } catch {
     taskError.value = true
   }
@@ -101,6 +161,38 @@ async function handleCancel(): Promise<void> {
   taskError.value = false
   try {
     applyTask(await cancelExplorationTask(task.value.task_id))
+  } catch {
+    taskError.value = true
+  }
+}
+
+async function handleComparisonConfirmLogin(identityId: string): Promise<void> {
+  if (comparison.value === null) return
+  taskError.value = false
+  try {
+    applyComparison(
+      await confirmPermissionComparisonLogin(comparison.value.comparison_id, identityId),
+    )
+  } catch {
+    taskError.value = true
+  }
+}
+
+async function handleComparisonCancel(): Promise<void> {
+  if (comparison.value === null) return
+  taskError.value = false
+  try {
+    applyComparison(await cancelPermissionComparison(comparison.value.comparison_id))
+  } catch {
+    taskError.value = true
+  }
+}
+
+async function handleComparisonDownload(): Promise<void> {
+  if (comparison.value === null) return
+  taskError.value = false
+  try {
+    await downloadPermissionComparison(comparison.value.comparison_id)
   } catch {
     taskError.value = true
   }
@@ -148,10 +240,26 @@ async function handleCancel(): Promise<void> {
 
     <section class="boundary">
       <h2>当前范围</h2>
-      <p>当前版本提供受控只读探索的本地任务管理。服务重启后，任务、结果和登录态均不可恢复。</p>
+      <p>
+        当前版本提供受控只读探索的本地任务管理。服务重启后仅可查询已持久化的脱敏终态结果；运行中的浏览器任务会安全标记为失败，登录态不可恢复。
+      </p>
     </section>
 
-    <ExplorationTaskForm @submit="handleCreate" />
+    <nav class="mode-switch" aria-label="探索模式">
+      <button data-test="task-mode" :aria-pressed="mode === 'task'" @click="mode = 'task'">
+        单任务探索
+      </button>
+      <button
+        data-test="comparison-mode"
+        :aria-pressed="mode === 'comparison'"
+        @click="mode = 'comparison'"
+      >
+        权限比较
+      </button>
+    </nav>
+
+    <ExplorationTaskForm v-if="mode === 'task'" @submit="handleCreate" />
+    <PermissionComparisonForm v-else @submit="handleComparisonCreate" />
 
     <p v-if="taskError" class="task-error" role="alert">任务操作未完成，请检查安全配置后重试。</p>
 
@@ -161,6 +269,14 @@ async function handleCancel(): Promise<void> {
       @confirm-login="handleConfirmLogin"
       @cancel="handleCancel"
     />
+    <PermissionComparisonDetail
+      v-if="comparison"
+      :comparison="comparison"
+      @confirm-login="handleComparisonConfirmLogin"
+      @cancel="handleComparisonCancel"
+      @download="handleComparisonDownload"
+    />
+    <ExplorationKnowledgeExport @error="taskError = true" />
   </main>
 </template>
 
@@ -297,6 +413,27 @@ h1 {
 .task-error {
   margin: 20px 4px 0;
   color: #ffb4b4;
+}
+
+.mode-switch {
+  display: flex;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+.mode-switch button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(139, 174, 201, 0.34);
+  border-radius: 8px;
+  color: #c8d7e3;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.mode-switch button[aria-pressed='true'] {
+  color: #041019;
+  background: #6fc4ff;
 }
 
 @media (max-width: 600px) {

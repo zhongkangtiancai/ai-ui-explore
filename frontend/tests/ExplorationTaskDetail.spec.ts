@@ -60,6 +60,30 @@ describe('ExplorationTaskDetail', () => {
     expect(wrapper.find('[data-test="cancel-task"]').exists()).toBe(false)
   })
 
+  it('explains that a task interrupted by restart cannot be resumed', () => {
+    const wrapper = mount(ExplorationTaskDetail, {
+      props: {
+        task: {
+          ...pausedTask,
+          state: 'failed',
+          phase: 'interrupted',
+          events: [
+            {
+              event_type: 'process_restarted',
+              reason_code: 'process_restarted',
+              checkpoint_id: null,
+              occurred_at: '2026-08-20T00:00:00Z',
+            },
+          ],
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('服务重启时任务尚未完成，已安全终止且不能继续。')
+    expect(wrapper.find('[data-test="confirm-login"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="cancel-task"]').exists()).toBe(false)
+  })
+
   it('renders only the safe audit and result summary values', () => {
     const wrapper = mount(ExplorationTaskDetail, { props: { task: pausedTask } })
 

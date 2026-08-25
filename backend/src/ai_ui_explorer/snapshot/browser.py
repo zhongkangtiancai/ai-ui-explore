@@ -10,12 +10,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
-from typing import Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, Protocol, TypedDict, cast
 
 from playwright.sync_api import (
     Browser,
     BrowserContext,
+    Download,
     Frame,
+    Locator,
     Page,
     Playwright,
     sync_playwright,
@@ -23,6 +25,10 @@ from playwright.sync_api import (
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from ai_ui_explorer.exploration.interactions import (
+    ReadonlyInteractionCandidate,
+    ReadonlyInteractionExecution,
+)
 from ai_ui_explorer.snapshot.models import (
     Bounds,
     FrameStopReason,
@@ -680,6 +686,46 @@ class PlaywrightBrowserSession:
     def has_css(self, selector: str) -> bool:
         return self._page.locator(selector).count() > 0
 
+    def execute_readonly_interaction(
+        self,
+        candidate: ReadonlyInteractionCandidate,
+    ) -> ReadonlyInteractionExecution:
+        """Click one pre-approved unique locator without exposing the Page."""
+        url_before = self.current_url
+        if (
+            candidate.locator.uniqueness != "unique"
+            or not candidate.locator.recommended
+            or candidate.frame_path not in {"main", "frame-0"}
+        ):
+            return _readonly_interaction_failure("unsupported_locator", url_before)
+        try:
+            locator = _readonly_interaction_locator(self._page, candidate)
+            if locator.count() != 1:
+                return _readonly_interaction_failure("locator_not_unique", url_before)
+            downloads: list[Download] = []
+
+            def record_download(download: Download) -> None:
+                downloads.append(download)
+
+            self._page.on("download", record_download)
+            try:
+                locator.click()
+            finally:
+                self._page.remove_listener("download", record_download)
+            if downloads:
+                for download in downloads:
+                    download.cancel()
+                return _readonly_interaction_failure("download_detected", url_before)
+            return ReadonlyInteractionExecution(
+                status="executed",
+                reason_code="executed",
+                safe_message="Interaction executed.",
+                url_before=url_before,
+                url_after=self.current_url,
+            )
+        except PlaywrightError:
+            return _readonly_interaction_failure("interaction_failed", url_before)
+
     def collect(self, url: str, limits: SnapshotLimits) -> RawPageObservation:
         deadline = monotonic() + (limits.total_timeout_ms / 1_000)
         return _collect_page_observation(
@@ -687,6 +733,17 @@ class PlaywrightBrowserSession:
             url=url,
             limits=limits,
             deadline=deadline,
+        )
+
+    def collect_current(self, limits: SnapshotLimits) -> RawPageObservation:
+        """Observe the current task-bound page without triggering navigation."""
+        deadline = monotonic() + (limits.total_timeout_ms / 1_000)
+        return _collect_page_observation(
+            page=self._page,
+            url=self.current_url,
+            limits=limits,
+            deadline=deadline,
+            navigate=False,
         )
 
     def close(self) -> None:
@@ -703,18 +760,95 @@ class PlaywrightBrowserSession:
             self._playwright.stop()
 
 
+def _readonly_interaction_failure(
+    reason_code: str,
+    url_before: str,
+) -> ReadonlyInteractionExecution:
+    return ReadonlyInteractionExecution(
+        status="failed",
+        reason_code=reason_code,
+        safe_message="Interaction was not executed.",
+        url_before=url_before,
+    )
+
+
+def _readonly_interaction_locator(
+    page: Page,
+    candidate: ReadonlyInteractionCandidate,
+) -> Locator:
+    """Map only persisted, bounded locator strategies to a current-page locator."""
+    parameters = candidate.locator.parameters
+    strategy = candidate.locator.strategy
+    if strategy == "role":
+        role = parameters.get("role")
+        name = parameters.get("name")
+        exact = parameters.get("exact")
+        if not isinstance(role, str):
+            raise ValueError("invalid role locator")
+        if name is None:
+            return page.get_by_role(cast(Any, role))
+        if not isinstance(name, str):
+            raise ValueError("invalid role locator name")
+        return page.get_by_role(
+            cast(Any, role),
+            name=name,
+            exact=exact if isinstance(exact, bool) else False,
+        )
+    if strategy == "label":
+        return page.get_by_label(_required_locator_value(parameters), exact=_exact(parameters))
+    if strategy == "text":
+        return page.get_by_text(_required_locator_value(parameters), exact=_exact(parameters))
+    if strategy == "testid":
+        return page.get_by_test_id(_required_locator_value(parameters))
+    if strategy in {"id", "name"}:
+        attribute = "id" if strategy == "id" else "name"
+        return page.locator(f"[{attribute}={json.dumps(_required_locator_value(parameters))}]")
+    if strategy == "aria":
+        attribute_value = parameters.get("attribute")
+        if not isinstance(attribute_value, str) or not attribute_value.startswith("aria-"):
+            raise ValueError("invalid aria locator")
+        return page.locator(
+            f"[{attribute_value}={json.dumps(_required_locator_value(parameters))}]"
+        )
+    if strategy == "css":
+        selector = parameters.get("selector")
+        if not isinstance(selector, str) or not selector:
+            raise ValueError("invalid css locator")
+        return page.locator(selector)
+    if strategy == "xpath":
+        expression = parameters.get("expression")
+        if not isinstance(expression, str) or not expression.startswith("//"):
+            raise ValueError("invalid xpath locator")
+        return page.locator(f"xpath={expression}")
+    raise ValueError("unsupported readonly locator")
+
+
+def _required_locator_value(parameters: dict[str, LocatorParameter]) -> str:
+    value = parameters.get("value")
+    if not isinstance(value, str) or not value:
+        raise ValueError("invalid locator value")
+    return value
+
+
+def _exact(parameters: dict[str, LocatorParameter]) -> bool:
+    exact = parameters.get("exact")
+    return exact if isinstance(exact, bool) else False
+
+
 def _collect_page_observation(
     *,
     page: Page,
     url: str,
     limits: SnapshotLimits,
     deadline: float,
+    navigate: bool = True,
 ) -> RawPageObservation:
-    page.goto(
-        url,
-        wait_until="domcontentloaded",
-        timeout=_remaining_milliseconds(deadline),
-    )
+    if navigate:
+        page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=_remaining_milliseconds(deadline),
+        )
     _raise_if_deadline_reached(deadline)
     _wait_for_dynamic_frames(page, deadline)
     _raise_if_deadline_reached(deadline)
@@ -732,9 +866,7 @@ def _collect_page_observation(
             )
         )
 
-    frame_ids = {
-        id(frame): f"frame-{index}" for index, frame in enumerate(ordered_frames)
-    }
+    frame_ids = {id(frame): f"frame-{index}" for index, frame in enumerate(ordered_frames)}
     frames: list[RawFrameObservation] = []
     observed_elements = 0
     deadline_reached = False
@@ -979,9 +1111,7 @@ def _observe_frame(
             },
             separators=(",", ":"),
         )
-        raw_payload = frame.locator(
-            f"{_OBSERVATION_SELECTOR}={selector_argument}"
-        ).get_attribute(
+        raw_payload = frame.locator(f"{_OBSERVATION_SELECTOR}={selector_argument}").get_attribute(
             _OBSERVATION_ATTRIBUTE,
             timeout=_remaining_milliseconds(deadline),
         )
@@ -999,9 +1129,7 @@ def _observe_frame(
         from ai_ui_explorer.snapshot.scrolling import collect_with_scrolling
 
         if remaining_elements > 0:
-            scrolling_limits = limits.model_copy(
-                update={"max_elements": remaining_elements}
-            )
+            scrolling_limits = limits.model_copy(update={"max_elements": remaining_elements})
             scrolling_observation = collect_with_scrolling(
                 frame,
                 scrolling_limits,
@@ -1011,9 +1139,7 @@ def _observe_frame(
             elements = scrolling_observation.elements
             scroll_results = scrolling_observation.scroll_results
             scroll_text_truncated = scrolling_observation.text_truncated
-            container_limit_reached = (
-                scrolling_observation.container_limit_reached
-            )
+            container_limit_reached = scrolling_observation.container_limit_reached
         else:
             scroll_results = []
             scroll_text_truncated = False
@@ -1070,32 +1196,18 @@ def _observe_frame(
 
     element_truncated = elements_payload["truncated"]
     text_truncated = (
-        text_payload["truncated"]
-        or elements_payload["textTruncated"]
-        or scroll_text_truncated
+        text_payload["truncated"] or elements_payload["textTruncated"] or scroll_text_truncated
     )
     scroll_deadline = next(
-        (
-            result
-            for result in scroll_results
-            if result.stop_reason == "deadline"
-        ),
+        (result for result in scroll_results if result.stop_reason == "deadline"),
         None,
     )
     scroll_error = next(
-        (
-            result
-            for result in scroll_results
-            if result.stop_reason == "error"
-        ),
+        (result for result in scroll_results if result.stop_reason == "error"),
         None,
     )
     scroll_detached = next(
-        (
-            result
-            for result in scroll_results
-            if result.stop_reason == "detached"
-        ),
+        (result for result in scroll_results if result.stop_reason == "detached"),
         None,
     )
     scroll_errors = (
@@ -1130,8 +1242,7 @@ def _observe_frame(
         )
     )
     scroll_truncated = container_limit_reached or any(
-        result.truncated or result.stop_reason == "detached"
-        for result in scroll_results
+        result.truncated or result.stop_reason == "detached" for result in scroll_results
     )
     truncated = element_truncated or text_truncated or scroll_truncated
     prioritized_scroll_reason = next(
@@ -1159,14 +1270,10 @@ def _observe_frame(
             or ("max_elements" if element_truncated else None)
             or ("max_text_chars" if text_truncated else None)
             or next(
-                (
-                    result.stop_reason
-                    for result in scroll_results
-                    if result.truncated
-                ),
+                (result.stop_reason for result in scroll_results if result.truncated),
                 None,
             )
-        )
+        ),
     )
     return RawFrameObservation(
         frame_id=frame_id,
@@ -1235,8 +1342,7 @@ def _element_from_payload(
         else None
     )
     locator_candidates = tuple(
-        _locator_candidate_from_payload(candidate)
-        for candidate in payload["locatorCandidates"]
+        _locator_candidate_from_payload(candidate) for candidate in payload["locatorCandidates"]
     )
     return RawElementObservation(
         traversal_index=traversal_index,

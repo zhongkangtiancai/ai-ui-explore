@@ -1,0 +1,983 @@
+{
+  "$defs": {
+    "DifferenceReliability": {
+      "enum": [
+        "high",
+        "medium",
+        "low",
+        "inconclusive"
+      ],
+      "type": "string"
+    },
+    "KnowledgeElement": {
+      "additionalProperties": false,
+      "properties": {
+        "element_id": {
+          "pattern": "^element-[a-f0-9]{16}$",
+          "title": "Element Id",
+          "type": "string"
+        },
+        "page_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Page Ref",
+          "type": "string"
+        },
+        "frame_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Frame Path",
+          "type": "string"
+        },
+        "element_key": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Element Key",
+          "type": "string"
+        },
+        "tag": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Tag",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "accessible_name": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accessible Name"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "maxProperties": 32,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "href": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Href"
+        },
+        "visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visible"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "element_id",
+        "page_ref",
+        "frame_path",
+        "element_key",
+        "tag",
+        "evidence_refs"
+      ],
+      "title": "KnowledgeElement",
+      "type": "object"
+    },
+    "KnowledgeEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_id": {
+          "pattern": "^evidence-[a-f0-9]{16}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "source_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "snapshot_schema_version": {
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
+          "title": "Snapshot Schema Version",
+          "type": "string"
+        },
+        "snapshot_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Snapshot Sha256",
+          "type": "string"
+        },
+        "json_pointer": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Json Pointer",
+          "type": "string"
+        },
+        "excerpt": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Excerpt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "source_ref",
+        "snapshot_id",
+        "snapshot_schema_version",
+        "snapshot_sha256",
+        "json_pointer",
+        "excerpt"
+      ],
+      "title": "KnowledgeEvidence",
+      "type": "object"
+    },
+    "KnowledgeFact": {
+      "additionalProperties": false,
+      "properties": {
+        "fact_id": {
+          "pattern": "^fact-[a-f0-9]{16}$",
+          "title": "Fact Id",
+          "type": "string"
+        },
+        "subject_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Subject Ref",
+          "type": "string"
+        },
+        "predicate": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Predicate",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 1.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "assertion_type": {
+          "const": "observed",
+          "default": "observed",
+          "title": "Assertion Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fact_id",
+        "subject_ref",
+        "predicate",
+        "evidence_refs"
+      ],
+      "title": "KnowledgeFact",
+      "type": "object"
+    },
+    "KnowledgeGap": {
+      "additionalProperties": false,
+      "properties": {
+        "gap_id": {
+          "pattern": "^gap-[a-f0-9]{16}$",
+          "title": "Gap Id",
+          "type": "string"
+        },
+        "subject_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Subject Ref",
+          "type": "string"
+        },
+        "code": {
+          "$ref": "#/$defs/KnowledgeGapCode"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "gap_id",
+        "subject_ref",
+        "code",
+        "limitations"
+      ],
+      "title": "KnowledgeGap",
+      "type": "object"
+    },
+    "KnowledgeGapCode": {
+      "enum": [
+        "collection_truncated",
+        "authentication_unverified",
+        "collection_failed",
+        "not_matchable",
+        "actions_not_explored",
+        "workflows_not_observed",
+        "workflows_partially_observed",
+        "evidence_process_local"
+      ],
+      "type": "string"
+    },
+    "KnowledgeIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "identity_id": {
+          "pattern": "^identity-[0-9]{1,20}$",
+          "title": "Identity Id",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "source_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_id",
+        "label",
+        "source_ref"
+      ],
+      "title": "KnowledgeIdentity",
+      "type": "object"
+    },
+    "KnowledgeInteractionStep": {
+      "additionalProperties": false,
+      "description": "One redacted readonly interaction observation, never a replay instruction.",
+      "properties": {
+        "step_id": {
+          "pattern": "^workflow-step-[a-f0-9]{16}$",
+          "title": "Step Id",
+          "type": "string"
+        },
+        "source_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "target_summary": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Target Summary",
+          "type": "string"
+        },
+        "before_state": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Before State",
+          "type": "string"
+        },
+        "after_state": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After State"
+        },
+        "status": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Status",
+          "type": "string"
+        },
+        "reason_code": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "step_id",
+        "source_ref",
+        "kind",
+        "target_summary",
+        "before_state",
+        "status",
+        "reason_code"
+      ],
+      "title": "KnowledgeInteractionStep",
+      "type": "object"
+    },
+    "KnowledgeLocatorCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "locator_id": {
+          "pattern": "^locator-[a-f0-9]{16}$",
+          "title": "Locator Id",
+          "type": "string"
+        },
+        "element_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Element Ref",
+          "type": "string"
+        },
+        "strategy": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Strategy",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "maxProperties": 8,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "rank": {
+          "minimum": 1,
+          "title": "Rank",
+          "type": "integer"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "uniqueness": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Uniqueness",
+          "type": "string"
+        },
+        "stability": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Stability",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "frame_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Frame Path",
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "locator_id",
+        "element_ref",
+        "strategy",
+        "parameters",
+        "rank",
+        "recommended",
+        "uniqueness",
+        "stability",
+        "confidence",
+        "frame_path",
+        "evidence_refs"
+      ],
+      "title": "KnowledgeLocatorCandidate",
+      "type": "object"
+    },
+    "KnowledgeObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "observation_id": {
+          "pattern": "^observation-[a-f0-9]{16}$",
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "subject_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Subject Ref",
+          "type": "string"
+        },
+        "code": {
+          "const": "visibility_difference_inconclusive",
+          "title": "Code",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Limitations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "observation_id",
+        "subject_ref",
+        "code",
+        "confidence",
+        "limitations"
+      ],
+      "title": "KnowledgeObservation",
+      "type": "object"
+    },
+    "KnowledgePage": {
+      "additionalProperties": false,
+      "properties": {
+        "page_id": {
+          "pattern": "^page-[a-f0-9]{16}$",
+          "title": "Page Id",
+          "type": "string"
+        },
+        "source_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "identity_ref": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Identity Ref"
+        },
+        "page_key": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Page Key",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "page_id",
+        "source_ref",
+        "page_key",
+        "evidence_refs"
+      ],
+      "title": "KnowledgePage",
+      "type": "object"
+    },
+    "KnowledgeSource": {
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_kind": {
+          "enum": [
+            "task",
+            "comparison"
+          ],
+          "title": "Source Kind",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/TerminalState"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Reason Codes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_kind",
+        "state"
+      ],
+      "title": "KnowledgeSource",
+      "type": "object"
+    },
+    "KnowledgeVisibilityDifference": {
+      "additionalProperties": false,
+      "properties": {
+        "difference_id": {
+          "pattern": "^difference-[a-f0-9]{16}$",
+          "title": "Difference Id",
+          "type": "string"
+        },
+        "source_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "original_difference_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Original Difference Id",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject_key": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Subject Key",
+          "type": "string"
+        },
+        "identity_states": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "maxProperties": 5,
+          "minProperties": 2,
+          "title": "Identity States",
+          "type": "object"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "reliability": {
+          "$ref": "#/$defs/DifferenceReliability"
+        }
+      },
+      "required": [
+        "difference_id",
+        "source_ref",
+        "original_difference_id",
+        "kind",
+        "subject_key",
+        "identity_states",
+        "reliability"
+      ],
+      "title": "KnowledgeVisibilityDifference",
+      "type": "object"
+    },
+    "KnowledgeWorkflowEdge": {
+      "additionalProperties": false,
+      "description": "A merged transition that was verified by one or more readonly steps.",
+      "properties": {
+        "edge_id": {
+          "pattern": "^workflow-edge-[a-f0-9]{16}$",
+          "title": "Edge Id",
+          "type": "string"
+        },
+        "source_ref": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "source_state": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source State",
+          "type": "string"
+        },
+        "target_state": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Target State",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "observation_count": {
+          "minimum": 1,
+          "title": "Observation Count",
+          "type": "integer"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "edge_id",
+        "source_ref",
+        "source_state",
+        "target_state",
+        "kind",
+        "observation_count",
+        "evidence_refs"
+      ],
+      "title": "KnowledgeWorkflowEdge",
+      "type": "object"
+    },
+    "KnowledgeWorkflowNode": {
+      "additionalProperties": false,
+      "description": "A verified observed page-state fingerprint in a readonly workflow.",
+      "properties": {
+        "state": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "KnowledgeWorkflowNode",
+      "type": "object"
+    },
+    "TerminalState": {
+      "enum": [
+        "completed",
+        "partial",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A bounded, downloadable runtime knowledge package with no inference.",
+  "properties": {
+    "schema_version": {
+      "const": "2.0",
+      "default": "2.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "package_id": {
+      "pattern": "^exploration-package-[a-f0-9]{16}$",
+      "title": "Package Id",
+      "type": "string"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeSource"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "title": "Sources",
+      "type": "array"
+    },
+    "identities": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeIdentity"
+      },
+      "maxItems": 25,
+      "title": "Identities",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeEvidence"
+      },
+      "maxItems": 50000,
+      "title": "Evidence",
+      "type": "array"
+    },
+    "pages": {
+      "items": {
+        "$ref": "#/$defs/KnowledgePage"
+      },
+      "maxItems": 500,
+      "title": "Pages",
+      "type": "array"
+    },
+    "elements": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeElement"
+      },
+      "maxItems": 20000,
+      "title": "Elements",
+      "type": "array"
+    },
+    "locator_candidates": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeLocatorCandidate"
+      },
+      "maxItems": 240000,
+      "title": "Locator Candidates",
+      "type": "array"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeFact"
+      },
+      "maxItems": 160000,
+      "title": "Facts",
+      "type": "array"
+    },
+    "visibility_differences": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeVisibilityDifference"
+      },
+      "maxItems": 20000,
+      "title": "Visibility Differences",
+      "type": "array"
+    },
+    "workflow_nodes": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeWorkflowNode"
+      },
+      "maxItems": 5000,
+      "title": "Workflow Nodes",
+      "type": "array"
+    },
+    "interaction_steps": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeInteractionStep"
+      },
+      "maxItems": 5000,
+      "title": "Interaction Steps",
+      "type": "array"
+    },
+    "workflow_edges": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeWorkflowEdge"
+      },
+      "maxItems": 5000,
+      "title": "Workflow Edges",
+      "type": "array"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeObservation"
+      },
+      "maxItems": 20000,
+      "title": "Observations",
+      "type": "array"
+    },
+    "knowledge_gaps": {
+      "items": {
+        "$ref": "#/$defs/KnowledgeGap"
+      },
+      "maxItems": 20000,
+      "title": "Knowledge Gaps",
+      "type": "array"
+    },
+    "inferences": {
+      "items": {},
+      "maxItems": 0,
+      "title": "Inferences",
+      "type": "array"
+    }
+  },
+  "required": [
+    "package_id",
+    "sources"
+  ],
+  "title": "ExplorationKnowledgePackageV2",
+  "type": "object"
+}

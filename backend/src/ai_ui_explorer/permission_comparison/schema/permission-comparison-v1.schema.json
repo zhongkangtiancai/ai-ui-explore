@@ -1,0 +1,595 @@
+{
+  "$defs": {
+    "BoundsEvidence": {
+      "additionalProperties": false,
+      "description": "A bounded layout observation, not a browser interaction coordinate.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "width": {
+          "minimum": 0,
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "minimum": 0,
+          "title": "Height",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "BoundsEvidence",
+      "type": "object"
+    },
+    "DifferenceKind": {
+      "enum": [
+        "observed_in_only_one_identity",
+        "observed_in_multiple_identities",
+        "safe_attribute_changed",
+        "link_target_changed",
+        "not_comparable"
+      ],
+      "title": "DifferenceKind",
+      "type": "string"
+    },
+    "DifferenceReliability": {
+      "enum": [
+        "high",
+        "medium",
+        "low",
+        "inconclusive"
+      ],
+      "title": "DifferenceReliability",
+      "type": "string"
+    },
+    "ElementEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "element_key": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Element Key",
+          "type": "string"
+        },
+        "frame_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Frame Path",
+          "type": "string"
+        },
+        "tag": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Tag",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "accessible_name": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accessible Name"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "maxProperties": 32,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "href": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Href"
+        },
+        "visible": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visible"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "bounds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundsEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "locator_hints": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 12,
+          "title": "Locator Hints",
+          "type": "array"
+        },
+        "locator_candidates": {
+          "items": {
+            "$ref": "#/$defs/LocatorCandidateEvidence"
+          },
+          "maxItems": 12,
+          "title": "Locator Candidates",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "element_key",
+        "frame_path",
+        "tag",
+        "evidence_refs"
+      ],
+      "title": "ElementEvidence",
+      "type": "object"
+    },
+    "EvidenceReference": {
+      "additionalProperties": false,
+      "description": "A bounded pointer to an already-redacted snapshot observation.",
+      "properties": {
+        "evidence_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "snapshot_schema_version": {
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
+          "title": "Snapshot Schema Version",
+          "type": "string"
+        },
+        "snapshot_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Snapshot Sha256",
+          "type": "string"
+        },
+        "json_pointer": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Json Pointer",
+          "type": "string"
+        },
+        "excerpt": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Excerpt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "snapshot_id",
+        "snapshot_schema_version",
+        "snapshot_sha256",
+        "json_pointer",
+        "excerpt"
+      ],
+      "title": "EvidenceReference",
+      "type": "object"
+    },
+    "IdentityEvidenceBundle": {
+      "additionalProperties": false,
+      "properties": {
+        "identity_id": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Identity Id",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/IdentityRunState"
+        },
+        "pages": {
+          "items": {
+            "$ref": "#/$defs/PageEvidence"
+          },
+          "maxItems": 100,
+          "title": "Pages",
+          "type": "array"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Reason Codes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "identity_id",
+        "state"
+      ],
+      "title": "IdentityEvidenceBundle",
+      "type": "object"
+    },
+    "IdentityRunState": {
+      "enum": [
+        "created",
+        "paused_for_human",
+        "collecting",
+        "completed",
+        "partial",
+        "failed",
+        "cancelled"
+      ],
+      "title": "IdentityRunState",
+      "type": "string"
+    },
+    "LocatorCandidateEvidence": {
+      "additionalProperties": false,
+      "description": "One allowlisted locator candidate from an already-redacted Snapshot.",
+      "properties": {
+        "locator_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Locator Id",
+          "type": "string"
+        },
+        "strategy": {
+          "enum": [
+            "role",
+            "label",
+            "text",
+            "placeholder",
+            "alt",
+            "title",
+            "testid",
+            "id",
+            "name",
+            "aria",
+            "css",
+            "xpath",
+            "position"
+          ],
+          "title": "Strategy",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "maxProperties": 8,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "source": {
+          "enum": [
+            "observed",
+            "generated"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "uniqueness": {
+          "enum": [
+            "unique",
+            "multiple",
+            "unverified"
+          ],
+          "title": "Uniqueness",
+          "type": "string"
+        },
+        "stability": {
+          "enum": [
+            "high",
+            "medium",
+            "low",
+            "unknown"
+          ],
+          "title": "Stability",
+          "type": "string"
+        },
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "rank": {
+          "minimum": 1,
+          "title": "Rank",
+          "type": "integer"
+        },
+        "recommended": {
+          "title": "Recommended",
+          "type": "boolean"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Limitations",
+          "type": "array"
+        },
+        "frame_path": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Frame Path",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "locator_id",
+        "strategy",
+        "parameters",
+        "source",
+        "uniqueness",
+        "stability",
+        "confidence",
+        "rank",
+        "recommended",
+        "frame_path",
+        "evidence_refs"
+      ],
+      "title": "LocatorCandidateEvidence",
+      "type": "object"
+    },
+    "ObservationState": {
+      "enum": [
+        "observed",
+        "not_observed",
+        "collection_incomplete",
+        "authentication_unverified",
+        "collection_failed",
+        "not_matchable"
+      ],
+      "title": "ObservationState",
+      "type": "string"
+    },
+    "PageEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "page_key": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Page Key",
+          "type": "string"
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/ElementEvidence"
+          },
+          "maxItems": 20000,
+          "title": "Elements",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "page_key",
+        "evidence_refs"
+      ],
+      "title": "PageEvidence",
+      "type": "object"
+    },
+    "VisibilityDifference": {
+      "additionalProperties": false,
+      "properties": {
+        "difference_id": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Difference Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/DifferenceKind"
+        },
+        "subject_key": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Subject Key",
+          "type": "string"
+        },
+        "identity_states": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ObservationState"
+          },
+          "maxProperties": 5,
+          "minProperties": 2,
+          "title": "Identity States",
+          "type": "object"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceReference"
+          },
+          "maxItems": 24,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "reason_codes": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "reliability": {
+          "$ref": "#/$defs/DifferenceReliability",
+          "default": "low"
+        }
+      },
+      "required": [
+        "difference_id",
+        "kind",
+        "subject_key",
+        "identity_states"
+      ],
+      "title": "VisibilityDifference",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The versioned, schema-validated JSON download contract.",
+  "properties": {
+    "comparison_id": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Comparison Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "failed",
+        "cancelled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "identities": {
+      "items": {
+        "$ref": "#/$defs/IdentityEvidenceBundle"
+      },
+      "maxItems": 5,
+      "minItems": 2,
+      "title": "Identities",
+      "type": "array"
+    },
+    "differences": {
+      "items": {
+        "$ref": "#/$defs/VisibilityDifference"
+      },
+      "maxItems": 100000,
+      "title": "Differences",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "comparison_id",
+    "status",
+    "identities"
+  ],
+  "title": "PermissionComparisonExport",
+  "type": "object"
+}

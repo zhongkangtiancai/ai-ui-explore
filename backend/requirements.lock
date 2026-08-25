@@ -1,4 +1,5 @@
 # Generated from the verified Python 3.12 project environment.
+alembic==1.19.1
 annotated-types==0.8.0
 anyio==4.14.2
 attrs==26.1.0
@@ -16,6 +17,8 @@ idna==3.18
 iniconfig==2.3.0
 jsonschema==4.25.1
 jsonschema-specifications==2025.9.1
+Mako==1.4.1
+MarkupSafe==3.0.3
 mypy==1.17.0
 mypy_extensions==1.1.0
 packaging==26.2
@@ -25,6 +28,8 @@ pluggy==1.6.0
 pydantic==2.13.4
 pydantic-settings==2.10.1
 pydantic_core==2.46.4
+psycopg==3.3.4
+psycopg-binary==3.3.4
 pyee==13.0.1
 Pygments==2.20.0
 pytest==8.4.1
@@ -35,9 +40,11 @@ referencing==0.37.0
 rpds-py==2026.6.3
 ruff==0.12.5
 setuptools==80.9.0
+SQLAlchemy==2.0.52
 starlette==0.47.3
 typing-inspection==0.4.2
 typing_extensions==4.16.0
+tzdata==2026.3
 uvicorn==0.35.0
 watchfiles==1.2.0
 websockets==16.1.1

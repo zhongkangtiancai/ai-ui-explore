@@ -56,6 +56,30 @@ _RUNTIME_FIELDS = frozenset(
 )
 
 
+def _wheel_source_copy_ignore() -> shutil.ignore_patterns:
+    return shutil.ignore_patterns(
+        "build",
+        "*.egg-info",
+        "__pycache__",
+        ".pytest-tmp-*",
+    )
+
+
+def test_wheel_source_copy_ignores_pytest_temporary_directories(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "pyproject.toml").write_text("[build-system]\n", encoding="utf-8")
+    temporary_directory = source / ".pytest-tmp-sprint7-final"
+    temporary_directory.mkdir()
+    (temporary_directory / "locked-artifact.txt").write_text("ignored", encoding="utf-8")
+
+    destination = tmp_path / "destination"
+    shutil.copytree(source, destination, ignore=_wheel_source_copy_ignore())
+
+    assert (destination / "pyproject.toml").is_file()
+    assert not (destination / ".pytest-tmp-sprint7-final").exists()
+
+
 def test_wheel_contains_schemas_and_installed_console_entry_point(
     tmp_path: Path,
 ) -> None:
@@ -64,11 +88,7 @@ def test_wheel_contains_schemas_and_installed_console_entry_point(
     shutil.copytree(
         backend_root,
         isolated_source,
-        ignore=shutil.ignore_patterns(
-            "build",
-            "*.egg-info",
-            "__pycache__",
-        ),
+        ignore=_wheel_source_copy_ignore(),
     )
     wheel_dir = tmp_path / "wheel"
     wheel_dir.mkdir()
@@ -133,6 +153,7 @@ def test_wheel_contains_schemas_and_installed_console_entry_point(
             "-m",
             "pip",
             "install",
+            "--force-reinstall",
             "--no-deps",
             str(wheel_path),
         ],

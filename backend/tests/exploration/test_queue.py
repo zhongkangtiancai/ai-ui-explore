@@ -7,7 +7,7 @@ from ai_ui_explorer.exploration.queue import (
     ModuleEntry,
     NavigationCandidate,
 )
-from tests.snapshot.factories import make_snapshot
+from tests.snapshot.factories import make_legacy_snapshot, make_snapshot
 
 
 def test_queue_seeds_only_allowed_module_entries() -> None:
@@ -67,6 +67,57 @@ def test_queue_deduplicates_normalized_default_ports_and_host_case() -> None:
         "duplicate_url",
     ]
     assert decisions[0].url == "https://app.example.test/dashboard"
+
+
+def test_queue_keeps_root_and_index_document_as_distinct_targets() -> None:
+    queue = BoundedExplorationQueue(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=5, max_depth=2, max_queue_size=5),
+    )
+    queue.seed_modules(
+        [ModuleEntry(module_id="root", url="https://app.example.test/")]
+    )
+    root = queue.next_target()
+
+    decision = queue.enqueue_candidates(
+        source=root,
+        candidates=[
+            NavigationCandidate(
+                url="https://app.example.test/index.html",
+                action_type="link_navigation",
+                label="Back to home",
+            )
+        ],
+    )[0]
+
+    assert decision.reason_code == "enqueued"
+    assert decision.url == "https://app.example.test/index.html"
+    assert queue.pending_count == 1
+
+
+def test_queue_keeps_root_index_document_with_query_as_distinct_target() -> None:
+    queue = BoundedExplorationQueue(
+        policy=NavigationPolicy(allowed_origins=["https://app.example.test"]),
+        budget=ExplorationBudget(max_pages=5, max_depth=2, max_queue_size=5),
+    )
+    queue.seed_modules(
+        [ModuleEntry(module_id="root", url="https://app.example.test/")]
+    )
+    root = queue.next_target()
+
+    decision = queue.enqueue_candidates(
+        source=root,
+        candidates=[
+            NavigationCandidate(
+                url="https://app.example.test/index.html?tab=activity",
+                action_type="link_navigation",
+                label="Activity",
+            )
+        ],
+    )[0]
+
+    assert decision.reason_code == "enqueued"
+    assert decision.url == "https://app.example.test/index.html?tab=activity"
 
 
 def test_queue_applies_action_gate_and_depth_to_candidates() -> None:
@@ -157,3 +208,20 @@ def test_queue_marks_repeated_snapshot_state() -> None:
     assert first_result.seen_before is False
     assert second_result.seen_before is True
     assert queue.visited_count == 2
+
+
+def test_queue_records_legacy_snapshot_without_navigation_metadata() -> None:
+    queue = BoundedExplorationQueue(
+        policy=NavigationPolicy(allowed_origins=["https://example.test"]),
+        budget=ExplorationBudget(max_pages=5, max_depth=2, max_queue_size=5),
+    )
+    queue.seed_modules(
+        [ModuleEntry(module_id="legacy", url="https://example.test/legacy")]
+    )
+
+    result = queue.record_snapshot_result(
+        queue.next_target(),
+        make_legacy_snapshot(),
+    )
+
+    assert result.link_count == 0

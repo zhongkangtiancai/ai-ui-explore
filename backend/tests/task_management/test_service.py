@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from threading import Event
 from time import monotonic, sleep
 
@@ -13,12 +14,27 @@ from ai_ui_explorer.exploration.authentication import (
     AuthenticationPlan,
     AuthenticationVerification,
 )
+from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
-from ai_ui_explorer.exploration.runner import ExplorationCancellationToken
+from ai_ui_explorer.exploration.runner import ExplorationCancellationToken, ExplorationRunner
 from ai_ui_explorer.exploration.task import ExplorationTask
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
+from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
+from ai_ui_explorer.permission_comparison.evidence import IdentityEvidenceCollector
+from ai_ui_explorer.permission_comparison.models import EvidenceReference, PageEvidence
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
+from ai_ui_explorer.snapshot.collector import SnapshotCollector
 from ai_ui_explorer.snapshot.models import SnapshotLimits
-from ai_ui_explorer.task_management.models import ManagedTask
+from ai_ui_explorer.task_management.evidence import (
+    ExplorationEvidenceExport,
+    TaskPageView,
+)
+from ai_ui_explorer.task_management.models import (
+    ManagedTask,
+    TaskEventView,
+    TaskResultSummary,
+    TaskSummary,
+)
 from ai_ui_explorer.task_management.registry import ExplorationTaskRegistry
 from ai_ui_explorer.task_management.service import (
     CreateExplorationTaskCommand,
@@ -26,6 +42,7 @@ from ai_ui_explorer.task_management.service import (
     TaskServiceError,
 )
 from tests.snapshot.conftest import LoginSite
+from tests.snapshot.fakes import FakeSource
 
 
 @dataclass(frozen=True)
@@ -187,6 +204,230 @@ def _service(fakes: _Fakes) -> ExplorationTaskService:
     )
 
 
+def test_service_reads_persisted_terminal_summary_after_runtime_is_absent() -> None:
+    timestamp = datetime(2026, 8, 19, tzinfo=UTC)
+    persisted = TaskSummary(
+        task_id="task-99",
+        state="completed",
+        phase="completed",
+        created_at=timestamp,
+        updated_at=timestamp,
+        redaction_count=0,
+        events=[TaskEventView(event_type="task_completed", occurred_at=timestamp)],
+        result=TaskResultSummary(
+            page_count=1,
+            element_count=2,
+            link_count=3,
+            source_summary="redacted source",
+        ),
+    )
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=_Fakes().runner_factory,
+        terminal_summary_reader=lambda task_id: persisted if task_id == "task-99" else None,
+    )
+
+    assert service.get("task-99") == persisted
+
+
+def test_service_lists_persisted_terminal_summary_after_runtime_is_absent() -> None:
+    timestamp = datetime(2026, 8, 19, tzinfo=UTC)
+    persisted = TaskSummary(
+        task_id="task-99",
+        state="completed",
+        phase="completed",
+        created_at=timestamp,
+        updated_at=timestamp,
+        redaction_count=0,
+        events=[TaskEventView(event_type="task_completed", occurred_at=timestamp)],
+        result=TaskResultSummary(
+            page_count=0,
+            element_count=0,
+            link_count=0,
+            source_summary="redacted source",
+        ),
+    )
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=_Fakes().runner_factory,
+        terminal_summary_list_reader=lambda: [persisted],
+    )
+
+    assert service.list_summaries() == [persisted]
+
+
+def test_service_reads_persisted_terminal_knowledge_source_after_runtime_is_absent() -> None:
+    reference = EvidenceReference(
+        evidence_id="evidence-1",
+        snapshot_id="snapshot-1",
+        snapshot_schema_version="1.1",
+        snapshot_sha256="a" * 64,
+        json_pointer="/frames/0",
+        excerpt="safe",
+    )
+    persisted = TaskKnowledgeSource(
+        source_id="task-99",
+        state="completed",
+        pages=[PageEvidence(page_key="origin-1/path", evidence_refs=[reference])],
+        workflow=TaskWorkflowExport(task_id="task-99", state="completed"),
+    )
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=_Fakes().runner_factory,
+        terminal_summary_reader=lambda task_id: (
+            TaskSummary(
+                task_id="task-99",
+                state="completed",
+                phase="completed",
+                created_at=datetime(2026, 8, 19, tzinfo=UTC),
+                updated_at=datetime(2026, 8, 19, tzinfo=UTC),
+                redaction_count=0,
+                events=[],
+                result=TaskResultSummary(
+                    page_count=1,
+                    element_count=0,
+                    link_count=0,
+                    source_summary="redacted source",
+                ),
+            )
+            if task_id == "task-99"
+            else None
+        ),
+        terminal_knowledge_source_reader=lambda task_id: (
+            persisted if task_id == "task-99" else None
+        ),
+    )
+
+    assert service.knowledge_source("task-99") == persisted
+
+
+def test_service_persists_terminal_projection_before_external_callback() -> None:
+    fakes = _Fakes()
+    persisted: list[str] = []
+    callbacks: list[str] = []
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=fakes.runner_factory,
+        terminal_projection_writer=lambda summary, _collector: persisted.append(
+            summary.task_id
+        ),
+    )
+
+    task = service.create(
+        _command(with_login=False),
+        on_terminal=lambda summary: callbacks.append(summary.task_id),
+    )
+
+    _wait_for(lambda: callbacks == [task.task_id])
+    assert persisted == [task.task_id]
+    assert callbacks == [task.task_id]
+
+
+def test_service_marks_task_failed_when_terminal_projection_cannot_persist() -> None:
+    fakes = _Fakes()
+    callbacks: list[TaskSummary] = []
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=fakes.runner_factory,
+        terminal_projection_writer=lambda _summary, _collector: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        ),
+    )
+
+    task = service.create(_command(with_login=False), on_terminal=callbacks.append)
+
+    _wait_for(lambda: len(callbacks) == 1)
+    assert callbacks[0].task_id == task.task_id
+    assert callbacks[0].state == "failed"
+    assert callbacks[0].phase == "failed"
+    assert callbacks[0].events[-1].event_type == "task_failed"
+    assert callbacks[0].events[-1].reason_code == "persistence_failure"
+
+
+def test_service_reads_all_terminal_evidence_views_after_runtime_is_absent() -> None:
+    timestamp = datetime(2026, 8, 19, tzinfo=UTC)
+    reference = EvidenceReference(
+        evidence_id="evidence-1",
+        snapshot_id="snapshot-1",
+        snapshot_schema_version="1.1",
+        snapshot_sha256="a" * 64,
+        json_pointer="/frames/0",
+        excerpt="safe",
+    )
+    page = PageEvidence(page_key="origin-1/path", evidence_refs=[reference])
+    page_view = TaskPageView(
+        page_id="page-1",
+        page_key="origin-1/path",
+        frame_count=1,
+        element_count=0,
+        link_count=0,
+        status="observed",
+        evidence_refs=[reference],
+    )
+    summary = TaskSummary(
+        task_id="task-99",
+        state="completed",
+        phase="completed",
+        created_at=timestamp,
+        updated_at=timestamp,
+        redaction_count=0,
+        events=[],
+        result=TaskResultSummary(
+            page_count=1,
+            element_count=0,
+            link_count=0,
+            source_summary="redacted source",
+        ),
+    )
+    export = ExplorationEvidenceExport(
+        schema_version="1.0",
+        task_id="task-99",
+        state="completed",
+        result=summary.result,
+        pages=[page_view],
+    )
+    workflow = TaskWorkflowExport(task_id="task-99", state="completed")
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=_Fakes().runner_factory,
+        terminal_summary_reader=lambda task_id: summary if task_id == "task-99" else None,
+        terminal_pages_reader=lambda task_id: [page_view] if task_id == "task-99" else None,
+        terminal_page_detail_reader=lambda task_id, page_id: (
+            page if (task_id, page_id) == ("task-99", "page-1") else None
+        ),
+        terminal_export_reader=lambda task_id: export if task_id == "task-99" else None,
+        terminal_workflow_reader=lambda task_id: workflow if task_id == "task-99" else None,
+    )
+
+    assert service.pages("task-99") == [page_view]
+    assert service.page_detail("task-99", "page-1") == page
+    assert service.export("task-99") == export
+    assert service.workflow("task-99") == workflow
+
+
+def test_service_persists_minimal_task_index_before_starting_runtime() -> None:
+    fakes = _Fakes()
+    persisted_states: list[str] = []
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=fakes.runner_factory,
+        task_summary_writer=lambda summary: persisted_states.append(str(summary.state)),
+    )
+
+    task = service.create(_command())
+
+    assert task.state == "paused_for_human"
+    assert persisted_states == ["created"]
+    assert fakes.runtime is not None
+
+
 def _wait_for(predicate: Callable[[], bool]) -> None:
     deadline = monotonic() + 2
     while monotonic() < deadline:
@@ -256,6 +497,120 @@ def test_runner_exception_ends_task_with_fixed_failure_reason() -> None:
     assert events is not None
     assert events[-1].reason_code == "runner_failure"
     assert "should-not-leak" not in service.get(task.task_id).model_dump_json()  # type: ignore[union-attr]
+
+
+def test_unattended_task_runs_with_only_the_internal_snapshot_collector_adapter() -> None:
+    def collector_factory(_context: object) -> SnapshotCollectorAdapter:
+        return SnapshotCollectorAdapter(
+            collector=SnapshotCollector(source=FakeSource.with_text("Visible page text")),
+            limits=SnapshotLimits(),
+        )
+
+    def runner_factory(
+        context: object,
+        policy: object,
+        budget: ExplorationBudget,
+        collector: object,
+        cancellation_token: ExplorationCancellationToken,
+    ) -> ExplorationRunner:
+        return context.create_runner(  # type: ignore[attr-defined]
+            policy=policy,
+            budget=budget,
+            collector=collector,
+            cancellation_token=cancellation_token,
+        )
+
+    fakes = _Fakes()
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=fakes.runtime_factory,
+        runner_factory=runner_factory,
+        collector_factory=collector_factory,
+    )
+
+    task = service.create(_command(with_login=False))
+
+    _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
+    result = service.result(task.task_id)
+    assert result is not None
+    assert result.page_count == 1
+
+
+def test_service_passes_optional_evidence_sink_to_internal_runner() -> None:
+    def collector_factory(_context: object) -> SnapshotCollectorAdapter:
+        return SnapshotCollectorAdapter(
+            collector=SnapshotCollector(source=FakeSource.with_text("Visible page text")),
+            limits=SnapshotLimits(),
+        )
+
+    def runner_factory(
+        context: object,
+        policy: object,
+        budget: ExplorationBudget,
+        collector: object,
+        cancellation_token: ExplorationCancellationToken,
+    ) -> ExplorationRunner:
+        return context.create_runner(  # type: ignore[attr-defined]
+            policy=policy,
+            budget=budget,
+            collector=collector,
+            cancellation_token=cancellation_token,
+        )
+
+    evidence_sink = IdentityEvidenceCollector(identity_id="identity-1")
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=runner_factory,
+        collector_factory=collector_factory,
+    )
+
+    task = service.create(_command(with_login=False), evidence_sink=evidence_sink)
+
+    _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
+    assert evidence_sink.bundle(state="completed").pages
+
+
+def test_service_keeps_task_local_evidence_without_exposing_runtime_objects() -> None:
+    def collector_factory(_context: object) -> SnapshotCollectorAdapter:
+        return SnapshotCollectorAdapter(
+            collector=SnapshotCollector(source=FakeSource.with_text("Visible page text")),
+            limits=SnapshotLimits(),
+        )
+
+    def runner_factory(
+        context: object,
+        policy: object,
+        budget: ExplorationBudget,
+        collector: object,
+        cancellation_token: ExplorationCancellationToken,
+    ) -> ExplorationRunner:
+        return context.create_runner(  # type: ignore[attr-defined]
+            policy=policy,
+            budget=budget,
+            collector=collector,
+            cancellation_token=cancellation_token,
+        )
+
+    service = ExplorationTaskService(
+        registry=ExplorationTaskRegistry(),
+        runtime_factory=_Fakes().runtime_factory,
+        runner_factory=runner_factory,
+        collector_factory=collector_factory,
+    )
+    task = service.create(_command(with_login=False))
+
+    _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
+    pages = service.pages(task.task_id)
+    assert pages is not None
+    assert [page.page_id for page in pages] == ["page-1"]
+    detail = service.page_detail(task.task_id, "page-1")
+    assert detail is not None
+    assert "browser" not in detail.model_dump_json().lower()
+    exported = service.export(task.task_id)
+    assert exported is not None
+    assert exported.pages[0].page_id == "page-1"
+    assert "snapshotdocument" not in exported.model_dump_json().lower()
 
 
 def test_service_summarizes_only_safe_counts_from_runner_visits() -> None:
@@ -593,7 +948,7 @@ def test_service_resumes_real_bound_login_runtime_after_confirmation(
     service.confirm_login(task.task_id)
 
     _wait_for(lambda: service.get(task.task_id).state == "completed")  # type: ignore[union-attr]
-    assert service.result(task.task_id).page_count == 1  # type: ignore[union-attr]
+    assert service.result(task.task_id).page_count == 2  # type: ignore[union-attr]
     assert runtime_closed.wait(timeout=2)
 
 

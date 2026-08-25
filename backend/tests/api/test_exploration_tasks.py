@@ -13,14 +13,20 @@ from ai_ui_explorer.exploration.authentication import (
     AuthenticationVerification,
 )
 from ai_ui_explorer.exploration.login_runtime import HumanLoginSession
-from ai_ui_explorer.exploration.queue import ExplorationBudget
+from ai_ui_explorer.exploration.queue import ExplorationBudget, ExplorationTarget
 from ai_ui_explorer.exploration.runner import (
     ExplorationCancellationToken,
     ExplorationRunner,
 )
-from ai_ui_explorer.main import create_app
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
+from ai_ui_explorer.permission_comparison.evidence import project_snapshot
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.models import SnapshotLimits
+from ai_ui_explorer.snapshot.redaction import Redactor
+from ai_ui_explorer.task_management.evidence import (
+    ExplorationEvidenceExport,
+    TaskPageView,
+)
 from ai_ui_explorer.task_management.models import (
     TaskEventView,
     TaskResultSummary,
@@ -32,7 +38,9 @@ from ai_ui_explorer.task_management.service import (
     TaskServiceError,
     _TaskRuntimeContext,
 )
+from tests.api.app_factory import create_test_app
 from tests.snapshot.conftest import LoginSite
+from tests.snapshot.factories import make_snapshot
 
 
 def valid_payload() -> dict[str, object]:
@@ -79,6 +87,38 @@ class _FakeTaskService:
         summary = self.get(task_id)
         return summary.result if summary is not None else None
 
+    def pages(self, task_id: str) -> list[TaskPageView] | None:
+        if self.get(task_id) is None:
+            return None
+        return [_page_view()]
+
+    def page_detail(self, task_id: str, page_id: str):
+        if self.get(task_id) is None or page_id != "page-1":
+            return None
+        return _page_evidence()
+
+    def export(self, task_id: str) -> ExplorationEvidenceExport | None:
+        if self.get(task_id) is None:
+            return None
+        return ExplorationEvidenceExport(
+            schema_version="1.0",
+            task_id=task_id,
+            state="completed",
+            result=self.summary.result,
+            pages=[_page_view()],
+        )
+
+    def workflow(self, task_id: str) -> TaskWorkflowExport | None:
+        if self.get(task_id) is None:
+            return None
+        return TaskWorkflowExport(
+            task_id=task_id,
+            state="completed",
+            steps=[],
+            nodes=[],
+            edges=[],
+        )
+
 
 @pytest.fixture
 def fake_service() -> _FakeTaskService:
@@ -87,7 +127,7 @@ def fake_service() -> _FakeTaskService:
 
 @pytest.fixture
 def client(fake_service: _FakeTaskService) -> TestClient:
-    app = create_app()
+    app = create_test_app(task_service=fake_service)
     app.dependency_overrides[get_task_service] = lambda: fake_service
     return TestClient(app)
 
@@ -211,10 +251,76 @@ def test_post_cors_preflight_allows_the_task_api(client: TestClient) -> None:
     assert "access-control-allow-credentials" not in response.headers
 
 
+def test_pages_detail_and_export_are_safe_and_schema_valid(client: TestClient) -> None:
+    pages = client.get("/api/v1/exploration-tasks/task-1/pages")
+    assert pages.status_code == 200
+    assert pages.json()[0]["page_id"] == "page-1"
+
+    detail = client.get("/api/v1/exploration-tasks/task-1/pages/page-1")
+    assert detail.status_code == 200
+    assert detail.json()["elements"]
+
+    exported = client.get("/api/v1/exploration-tasks/task-1/export")
+    assert exported.headers["content-type"].startswith("application/json")
+    assert (
+        "attachment; filename=exploration-evidence.json" in exported.headers["content-disposition"]
+    )
+    assert "password" not in exported.text.lower()
+    assert "cookie" not in exported.text.lower()
+
+
+def test_workflow_endpoint_returns_only_the_readonly_workflow_projection(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/v1/exploration-tasks/task-1/workflow")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": "task-1",
+        "state": "completed",
+        "steps": [],
+        "nodes": [],
+        "edges": [],
+    }
+
+
+def test_unknown_task_and_page_use_fixed_safe_errors(client: TestClient) -> None:
+    assert client.get("/api/v1/exploration-tasks/task-999/pages").status_code == 404
+    assert client.get("/api/v1/exploration-tasks/task-1/pages/page-999").status_code == 404
+
+
+def _page_evidence():
+    return project_snapshot(
+        target=ExplorationTarget(
+            url="https://app.example.test/dashboard?token=fixture-secret",
+            depth=0,
+            source_url=None,
+            module_id="dashboard",
+            action_type="module_entry",
+            label="Dashboard",
+        ),
+        snapshot=make_snapshot(),
+        redactor=Redactor(),
+    )
+
+
+def _page_view() -> TaskPageView:
+    page = _page_evidence()
+    return TaskPageView(
+        page_id="page-1",
+        page_key=page.page_key,
+        frame_count=1,
+        element_count=len(page.elements),
+        link_count=0,
+        status="observed",
+        evidence_refs=list(page.evidence_refs),
+    )
+
+
 def test_local_login_task_completes_after_confirmation(login_site: LoginSite) -> None:
     runtime_closed = Event()
     service = _local_login_service(login_site, runtime_closed)
-    app = create_app()
+    app = create_test_app(task_service=service)
     app.state.exploration_task_service = service
 
     with TestClient(app) as local_client:
@@ -228,9 +334,7 @@ def test_local_login_task_completes_after_confirmation(login_site: LoginSite) ->
         paused = _wait_for_task_state(local_client, task_id, "paused_for_human")
         assert paused["phase"] == "awaiting_human"
 
-        confirmed = local_client.post(
-            f"/api/v1/exploration-tasks/{task_id}/confirm-login"
-        )
+        confirmed = local_client.post(f"/api/v1/exploration-tasks/{task_id}/confirm-login")
         assert confirmed.status_code == 200
 
         completed = _wait_for_task_state(local_client, task_id, "completed")
@@ -238,9 +342,9 @@ def test_local_login_task_completes_after_confirmation(login_site: LoginSite) ->
         result = local_client.get(f"/api/v1/exploration-tasks/{task_id}/result")
         assert result.status_code == 200
         assert result.json() == {
-            "page_count": 1,
-            "element_count": 2,
-            "link_count": 1,
+            "page_count": 2,
+            "element_count": 4,
+            "link_count": 2,
             "source_summary": "redacted source",
         }
         assert runtime_closed.wait(timeout=5)
@@ -248,12 +352,45 @@ def test_local_login_task_completes_after_confirmation(login_site: LoginSite) ->
         rejected_confirmation = local_client.post(
             f"/api/v1/exploration-tasks/{task_id}/confirm-login"
         )
-        rejected_cancellation = local_client.post(
-            f"/api/v1/exploration-tasks/{task_id}/cancel"
-        )
+        rejected_cancellation = local_client.post(f"/api/v1/exploration-tasks/{task_id}/cancel")
 
     assert rejected_confirmation.status_code == 409
     assert rejected_cancellation.status_code == 409
+
+
+def test_local_browser_task_exposes_redacted_page_and_locator_details(
+    login_site: LoginSite,
+) -> None:
+    runtime_closed = Event()
+    service = _local_login_service(login_site, runtime_closed)
+    app = create_test_app(task_service=service)
+    app.state.exploration_task_service = service
+
+    with TestClient(app) as local_client:
+        created = local_client.post(
+            "/api/v1/exploration-tasks",
+            json=_local_login_payload(login_site),
+        )
+        task_id = created.json()["task_id"]
+        _wait_for_task_state(local_client, task_id, "paused_for_human")
+        assert (
+            local_client.post(f"/api/v1/exploration-tasks/{task_id}/confirm-login").status_code
+            == 200
+        )
+        _wait_for_task_state(local_client, task_id, "completed")
+
+        pages = local_client.get(f"/api/v1/exploration-tasks/{task_id}/pages")
+        assert pages.status_code == 200
+        assert len(pages.json()) == 2
+        assert pages.json()[0]["page_id"] == "page-1"
+
+        detail = local_client.get(f"/api/v1/exploration-tasks/{task_id}/pages/page-1")
+        assert detail.status_code == 200
+        payload = detail.json()
+        assert payload["elements"]
+        assert any(item["locator_candidates"] for item in payload["elements"])
+        assert "fixture-password-do-not-return" not in str(payload)
+        assert runtime_closed.wait(timeout=5)
 
 
 def _local_login_service(

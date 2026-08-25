@@ -2,7 +2,7 @@
 
 from threading import RLock
 
-from ai_ui_explorer.task_management.models import ManagedTask
+from ai_ui_explorer.task_management.models import ManagedTask, TaskSummary
 
 
 class ExplorationTaskRegistry:
@@ -25,9 +25,22 @@ class ExplorationTaskRegistry:
         with self._lock:
             return self._tasks.get(task_id)
 
+    def list_summaries(self) -> list[TaskSummary]:
+        """Return copied public summaries in stable public-ID order."""
+        with self._lock:
+            return [
+                self._tasks[task_id].summary()
+                for task_id in sorted(self._tasks)
+            ]
+
     def remove_runtime(self, task_id: str) -> None:
         """Release private runtime resources without deleting task metadata."""
         with self._lock:
             task = self._tasks.get(task_id)
         if task is not None:
             task.remove_runtime()
+
+    def remove(self, task_id: str) -> None:
+        """Forget an entry that never acquired a runnable process-local task."""
+        with self._lock:
+            self._tasks.pop(task_id, None)

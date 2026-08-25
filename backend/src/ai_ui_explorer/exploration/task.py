@@ -126,6 +126,17 @@ class ExplorationTask(DeepFrozenModel):
         self._append_event("task_failed", reason_code=reason_code)
         self._notify_terminal_callbacks()
 
+    def fail_after_terminal_persistence_error(self) -> None:
+        """Downgrade an exposed terminal result when its required projection failed."""
+        if self.state not in {
+            ExplorationTaskState.COMPLETED,
+            ExplorationTaskState.PARTIAL,
+            ExplorationTaskState.CANCELLED,
+        }:
+            raise ExplorationTaskError("task cannot record persistence failure")
+        self._set_state(ExplorationTaskState.FAILED)
+        self._append_event("task_failed", reason_code="persistence_failure")
+
     def cancel(self, *, reason_code: str) -> None:
         self._require_not_terminal()
         self._set_state(ExplorationTaskState.CANCELLED)

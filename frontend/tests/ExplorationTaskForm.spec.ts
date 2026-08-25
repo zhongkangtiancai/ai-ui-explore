@@ -40,6 +40,20 @@ describe('ExplorationTaskForm', () => {
     ])
   })
 
+  it('allows local HTTP only after the user explicitly enables it', async () => {
+    const wrapper = mount(ExplorationTaskForm)
+
+    await wrapper.get('[data-test="module-id"]').setValue('local-dashboard')
+    await wrapper.get('[data-test="module-url"]').setValue('http://127.0.0.1:9100')
+    await wrapper.get('[data-test="allowed-origin"]').setValue('http://127.0.0.1:9100')
+    await wrapper.get('[data-test="allow-local-http"]').setValue(true)
+    await wrapper.get('form').trigger('submit.prevent')
+
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toMatchObject({
+      allow_local_http: true,
+    })
+  })
+
   it('emits explicit authentication configuration only when manual login is selected', async () => {
     const wrapper = mount(ExplorationTaskForm)
 

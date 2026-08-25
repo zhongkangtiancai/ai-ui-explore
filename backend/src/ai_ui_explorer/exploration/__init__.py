@@ -7,6 +7,13 @@ from ai_ui_explorer.exploration.authentication import (
 )
 from ai_ui_explorer.exploration.candidates import extract_navigation_candidates
 from ai_ui_explorer.exploration.collector_adapter import SnapshotCollectorAdapter
+from ai_ui_explorer.exploration.interactions import (
+    InteractionDecision,
+    ReadonlyInteractionCandidate,
+    ReadonlyInteractionGate,
+    ReadonlyInteractionKind,
+    extract_readonly_interaction_candidates,
+)
 from ai_ui_explorer.exploration.login_runtime import (
     HumanLoginRuntimeError,
     HumanLoginSession,
@@ -51,6 +58,7 @@ from ai_ui_explorer.exploration.task import (
 __all__ = [
     "ActionDecision",
     "ActionGate",
+    "InteractionDecision",
     "AuthenticationError",
     "AuthenticationPlan",
     "AuthenticationVerification",
@@ -74,8 +82,12 @@ __all__ = [
     "NavigationCandidate",
     "NavigationDecision",
     "NavigationPolicy",
+    "ReadonlyInteractionCandidate",
+    "ReadonlyInteractionGate",
+    "ReadonlyInteractionKind",
     "NavigationPolicyViolation",
     "SnapshotCollectorPort",
+    "extract_readonly_interaction_candidates",
     "SnapshotCollectorAdapter",
     "SnapshotVisitResult",
     "StateDeduplicator",

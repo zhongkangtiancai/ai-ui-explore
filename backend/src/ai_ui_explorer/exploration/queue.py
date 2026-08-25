@@ -19,6 +19,8 @@ class ExplorationBudget(DeepFrozenModel):
     max_pages: int = Field(default=20, ge=1, le=1_000)
     max_depth: int = Field(default=2, ge=0, le=20)
     max_queue_size: int = Field(default=100, ge=1, le=10_000)
+    max_interaction_steps: int = Field(default=20, ge=0, le=1_000)
+    max_interactions_per_page: int = Field(default=5, ge=0, le=100)
 
 
 class ModuleEntry(DeepFrozenModel):
@@ -140,7 +142,7 @@ class BoundedExplorationQueue:
             state_fingerprint=self._state_deduplicator.observe(snapshot),
             element_count=sum(len(frame.elements) for frame in snapshot.frames),
             link_count=sum(
-                element.href is not None
+                getattr(element, "href", None) is not None
                 for frame in snapshot.frames
                 for element in frame.elements
             ),

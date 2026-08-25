@@ -21,6 +21,20 @@
 - LLM Provider 层统一公网和内网模型差异。
 - 长任务采用异步任务模型，不占用同步 HTTP 请求。
 
+## Sprint 7 证据浏览层
+
+`TaskEvidenceCollector` 在 Runner 的证据 sink 边界即时投影共享 `PageEvidence`，只保留已脱敏的受限模型；任务服务以任务内 `page-N` 提供索引、详情和导出，避免把脱敏 URL 作为唯一键。导出使用 Pydantic Schema 再校验，Vue 仅进行 GET/下载并以文本方式展示 Frame、元素、属性、边界与定位器候选，不渲染原始 HTML。任务终态后证据可在当前进程内读取，但没有持久化或跨进程恢复能力。
+
+## Sprint 8 统一知识导出层
+
+`ExplorationKnowledgeExportService` 位于任务/对比服务与 HTTP 层之间。它只调用终态的安全 DTO 投影：任务侧为 `TaskSummary` 与已脱敏 `PageEvidence`，对比侧为 `PermissionComparisonResult` 与可见性差异；不会取得 `ManagedTask`、执行线程、运行时、浏览器或 Collector。纯 `ExplorationKnowledgeBuilder` 负责稳定排序、证据闭包、固定缺口与预算拒绝，FastAPI 在返回附件前再次按 v2 Schema 校验，Vue 仅列出来源 ID、状态和计数并触发下载。
+
+该架构不持久化包或原始证据，JSON Pointer 只能辅助当前进程中的人工核查。来源不存在、不是终态或不再可用时只返回固定安全错误；未知请求字段被拒绝且不会回显。该层不执行动作、不产生 AI 推断，也不证明业务权限或后端数据授权。
+
+## Sprint 9 只读交互与流程投影层
+
+`exploration.interactions` 从已脱敏页面投影提取候选并默认拒绝风险或不唯一操作；任务绑定的浏览器会话只执行获准定位器，随后重新采集状态。`task_management.evidence` 将运行结果投影为步骤与确定性流程图，`exploration_knowledge` 仅从该进程内 DTO 导出步骤、节点、边和可解析证据引用。前端只读显示，不提供重放、输入或确认控制。
+
 ## 当前实现
 
 当前已包含：
@@ -29,11 +43,12 @@
 - Sprint 1 的单 URL、被动、有界、脱敏结构化页面快照 CLI。
 - Sprint 2 的确定性 Application Knowledge Model Builder、Schema、Writer 和 CLI。
 - Sprint 3 的 LLM Provider 抽象、Mock Provider、OpenAI-compatible 非流式适配器、Context Manager、保守 Token 估算、进程内缓存和薄 Runtime。
-- Sprint 4 前三切片的 URL/Origin 风险门禁、只读动作门禁、任务状态机、最小审计事件、页面状态指纹、去重基础、指定模块入口配置、有界探索队列模型、可注入 Collector Port 的有界 Runner 编排、`SnapshotCollector` 适配器、Snapshot 1.1 脱敏 `href` 导航元数据，从快照提取去重链接导航候选的纯函数，以及 Runner 对默认候选提取和重复状态停止展开的接入；本地 HTTP fixture 已通过真实 Chromium 的两页受控端到端验收。
+- Sprint 4 前三切片的 URL/Origin 风险门禁、只读动作门禁、任务状态机、最小审计事件、页面状态指纹、去重基础、指定模块入口配置、有界探索队列模型、可注入 Collector Port 的有界 Runner 编排、`SnapshotCollector` 适配器、Snapshot 1.1 脱敏 `href` 导航元数据，从快照提取去重链接导航候选的纯函数，以及 Runner 对默认候选提取和重复状态停止展开的接入；队列保留原始规范 URL，`/` 与 `/index.html` 不做无证据别名合并；本地 HTTP fixture 已通过真实 Chromium 的两页受控端到端验收。
 - Sprint 4 第四切片的后端人机协同登录运行时：每个任务使用单一、进程内存态、可见的 Playwright Browser Context；人工显式确认后，以配置的登录后 URL 前缀和 CSS 检查点认证，再由具体会话 Collector 通过模块私有的精确类型及 source/session/task 对象身份校验绑定同一 Context，恢复 Runner 的受控只读探索；Collector Port 不公开可由包装器伪造的绑定能力。Runner 可选绑定同一个任务，拒绝 task/collector 错绑，并在 completed/partial 或未处理异常对应的 failed 终态同步关闭会话。终态回调隔离各自的清理异常并继续执行，且 Runner 原始异常保持不变后继续向调用方传播。该清理保证仅覆盖进程内 finally 可执行路径。本地 HTTP 模拟登录站点已通过真实 Chromium 端到端验收。
 - Sprint 5 的最小任务管理产品层：加锁的单进程内存注册表将私有任务、后台线程和浏览器运行时与可序列化的脱敏摘要隔离；后台线程运行既有受控 Runner；FastAPI 暴露创建、详情、审计、人工确认、取消和结果摘要。摘要只从 Runner visit 的页面、元素和链接标量计数累积，不持有 Snapshot、元素内容或浏览器对象；Vue 页面轮询并展示安全状态。人工登录的 Playwright sync Context 只在其所属后台线程使用，API 确认仅发送受控信号；终态会关闭 Context。服务重启不会恢复任务、结果或登录态，进程崩溃或强制终止时不保证 finally 清理。
+- Sprint 6 的权限比较层：父级比较任务仅保存进程内、脱敏的 `IdentityEvidenceBundle` 和最终差异，身份按顺序运行，且每个身份拥有独立 Browser Context、任务、取消令牌和人工登录确认。Runner 在成功 Snapshot 后把受限证据投影交给私有 sink；比较器只使用同 Frame 的稳定属性进行匹配。若任一身份不是 completed，最终所有差异可靠性均为 inconclusive。比较 API 可提供安全页面明细、差异与 Schema 校验的内存 JSON 附件；前端默认隐藏 low/inconclusive 项。真实 Chromium 验收仅覆盖本地虚构角色站点，不能外推为后端数据权限、真实外站登录或业务授权验证。
 
 该任务管理层与登录运行时均不持久化浏览器状态，且不等于通用登录或生产级任务系统。仍未实现：
 数据库、Redis、独立 Worker、跨进程任务恢复、跨任务登录态复用、加密登录态存储、SSO/扫码/MFA
-专用适配、真实外部站点登录、访问控制绕过、截图、网络正文、LLM 推断、多身份权限差异、巡检、
+专用适配、真实外部站点登录、访问控制绕过、截图、网络正文、LLM 推断、后端数据权限验证、巡检、
 测试案例生成和 Playwright 自动化代码生成。

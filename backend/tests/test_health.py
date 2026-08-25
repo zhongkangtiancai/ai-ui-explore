@@ -1,10 +1,23 @@
+from unittest.mock import Mock
+
 from fastapi.testclient import TestClient
 
+from ai_ui_explorer.core.config import Settings
 from ai_ui_explorer.main import create_app
+from ai_ui_explorer.persistence.repositories import SafeTaskRepository
+
+
+def _app_for_test():
+    return create_app(
+        settings=Settings(
+            database_url="postgresql://user:password@localhost:5432/explorer"
+        ),
+        persistence_repository=Mock(spec=SafeTaskRepository),
+    )
 
 
 def test_health_returns_service_metadata() -> None:
-    client = TestClient(create_app())
+    client = TestClient(_app_for_test())
 
     response = client.get("/api/v1/health")
 
@@ -18,7 +31,7 @@ def test_health_returns_service_metadata() -> None:
 
 
 def test_unknown_route_uses_public_error_contract() -> None:
-    client = TestClient(create_app())
+    client = TestClient(_app_for_test())
 
     response = client.get("/api/v1/does-not-exist")
 

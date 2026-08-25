@@ -12,14 +12,30 @@ Playwright 采集经过约束和脱敏的页面证据，并逐步形成可追溯
 - 项目治理、测试和质量检查基线
 - Sprint 1 的单 URL、有预算、被动、脱敏结构化页面快照 CLI
 - Sprint 2 的确定性 Application Knowledge Model Builder、Schema、Writer 和 CLI
+- Sprint 10 的 PostgreSQL-only 安全终态投影及本地 PostgreSQL 18.6 验收
 
 新采集默认输出 Snapshot 1.1，其中包含分层、排序且在当前 Frame 内校验过的定位器
 候选；Knowledge Builder 继续兼容 Snapshot 1.0。Builder 只转换本地、已校验的
 Snapshot，不重新访问网站，也不调用 LLM。
 
-当前仍未实现推断生成、测试案例生成、Playwright 代码生成、数据库、Redis、LLM、
-Agent、人机协同登录运行时、多页面受控探索、权限差异探索和周期巡检。文档中的这些
-内容仍是后续规划，不能当作现有能力。
+当前仍未实现推断生成、测试案例生成、Playwright 代码生成、Redis、LLM、
+Agent、登录态跨进程恢复和周期巡检。Sprint 10 已在隔离 PostgreSQL 18.6 与本地虚构登录站点 Chromium 验收；这不代表真实外部站点、SSO、扫码或 MFA 已验证。
+
+## 统一探索知识包
+
+在当前后端进程中，已结束的探索任务和权限对比可在前端的“导出统一探索知识包”面板中组合选择并下载 `exploration-knowledge-package.json`。该包只包含已脱敏的直接观察、页面/元素/定位器候选、UI 可见性差异、证据引用、可靠性和知识缺口；`inferences` 始终为空。
+
+## 受控只读交互与流程观察
+
+已结束的探索任务可展示经验证的只读交互步骤和状态流程。系统只允许展开/收起、标签切换、打开菜单、分页和查看详情；所有输入、提交、删除、审批、发布、支付、授权、上传、下载以及不确定候选默认拒绝。流程图只记录观察到的 UI 状态变化，不代表业务流程、权限或后端数据结论；真实外站、SSO、扫码和 MFA 尚未验证。
+
+它不保存原始 Snapshot、HTML、网络正文、Cookie、Token、输入值、浏览器对象或登录态，也不代表业务权限、角色授权或后端数据范围结论。终态脱敏投影可写入 PostgreSQL 并在服务重启后查询；运行中的浏览器任务会安全失败，绝不会恢复或复用登录态。该重启路径已在本机 PostgreSQL 18.6 与本地 Chromium 验收；最多导出 5 个来源、500 页、20,000 个元素、20,000 条差异、50,000 条证据和 10 MiB JSON，超限会明确拒绝而不会静默截断。
+
+## 探索明细浏览
+
+单次探索任务完成或处于 `partial` 后，可在前端任务详情中查看当前后端进程内已采集、已脱敏的页面、Frame、元素、链接、边界和定位器候选，并下载 JSON 证据包。详情使用任务内 `page-N` 标识；URL 仅作脱敏展示，不用于唯一定位。
+
+明细不包含原始 Snapshot、HTML、网络正文、Cookie、Token、输入值或浏览器对象。`partial` 仅表示采集不完整，不能据此判断页面不存在或业务权限被拒绝。服务重启后任务和证据均不可恢复；定位器候选不承诺跨版本稳定，也不会自动生成或执行 Playwright 代码。
 
 ## 本地运行
 
@@ -219,3 +235,6 @@ KnowledgeGap、单元素定位器或 JSON 体积预算时，结果为 `partial`�
 
 项目事实基线从 [项目上下文](docs/00-project-context.md) 开始阅读。研发路线见
 [研发路线](docs/07-roadmap.md)。
+
+本地虚构角色站上的人工登录、权限比较、取消和安全导出验收见
+[Sprint 6 权限比较本地用户验收](docs/user-acceptance/sprint6-permission-comparison-cases.md)。该验收只说明受控身份下的 UI 可见性观察，不证明业务授权、后端数据权限或真实 SSO/MFA 可用性。

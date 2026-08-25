@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from threading import Event, RLock, Thread
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from pydantic import Field
 
@@ -13,19 +13,34 @@ from ai_ui_explorer.exploration.authentication import (
     AuthenticationPlan,
     AuthenticationVerification,
 )
-from ai_ui_explorer.exploration.collector_adapter import SessionSnapshotCollectorAdapter
+from ai_ui_explorer.exploration.collector_adapter import (
+    SessionSnapshotCollectorAdapter,
+    SnapshotCollectorAdapter,
+)
+from ai_ui_explorer.exploration.interactions import (
+    extract_readonly_interaction_candidates,
+)
 from ai_ui_explorer.exploration.login_runtime import HumanLoginSession
 from ai_ui_explorer.exploration.policy import NavigationPolicy
 from ai_ui_explorer.exploration.queue import ExplorationBudget, ModuleEntry
 from ai_ui_explorer.exploration.runner import (
     ExplorationCancellationToken,
+    ExplorationEvidenceSink,
     ExplorationRunner,
     SnapshotCollectorPort,
 )
 from ai_ui_explorer.exploration.task import ExplorationTask, ExplorationTaskError
+from ai_ui_explorer.exploration.workflows import TaskWorkflowExport
+from ai_ui_explorer.exploration_knowledge.models import TaskKnowledgeSource
 from ai_ui_explorer.knowledge.immutability import DeepFrozenModel
+from ai_ui_explorer.permission_comparison.models import PageEvidence
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.models import SnapshotLimits
+from ai_ui_explorer.task_management.evidence import (
+    ExplorationEvidenceExport,
+    TaskEvidenceCollector,
+    TaskPageView,
+)
 from ai_ui_explorer.task_management.models import (
     ManagedTask,
     TaskEventView,
@@ -72,6 +87,15 @@ RunnerFactory = Callable[
     _TaskRunner,
 ]
 CollectorFactory = Callable[["_TaskRuntimeContext"], object]
+TerminalSummaryReader = Callable[[str], TaskSummary | None]
+TerminalSummaryListReader = Callable[[], list[TaskSummary]]
+TerminalKnowledgeSourceReader = Callable[[str], TaskKnowledgeSource | None]
+TerminalProjectionWriter = Callable[[TaskSummary, TaskEvidenceCollector], None]
+TaskSummaryWriter = Callable[[TaskSummary], None]
+TerminalPagesReader = Callable[[str], list[TaskPageView] | None]
+TerminalPageDetailReader = Callable[[str, str], PageEvidence | None]
+TerminalExportReader = Callable[[str], ExplorationEvidenceExport | None]
+TerminalWorkflowReader = Callable[[str], TaskWorkflowExport | None]
 
 
 class CreateExplorationTaskCommand(DeepFrozenModel):
@@ -91,6 +115,7 @@ class _TaskExecution:
     policy: NavigationPolicy
     cancellation_token: ExplorationCancellationToken
     context: _TaskRuntimeContext
+    evidence_collector: TaskEvidenceCollector
     runtime: _LoginRuntime | None = None
     startup_ready: Event = field(default_factory=Event)
     confirmation_requested: Event = field(default_factory=Event)
@@ -98,13 +123,21 @@ class _TaskExecution:
     runtime_closed: Event = field(default_factory=Event)
     confirmation_failed: bool = False
     confirmation_in_flight: bool = False
+    on_terminal: Callable[[TaskSummary], None] | None = None
+    terminal_notified: Event = field(default_factory=Event)
 
 
 class _TaskRuntimeContext:
     """Private, controlled bridge to one hidden ExplorationTask identity."""
 
-    def __init__(self, managed: ManagedTask) -> None:
+    def __init__(
+        self,
+        managed: ManagedTask,
+        *,
+        evidence_sink: ExplorationEvidenceSink | None = None,
+    ) -> None:
         self._managed = managed
+        self._evidence_sink = evidence_sink
 
     def start_collection(self) -> None:
         self._managed.start_collection()
@@ -128,6 +161,11 @@ class _TaskRuntimeContext:
 
     def complete(self) -> None:
         self._managed.complete()
+
+    def fail_after_terminal_persistence_error(self) -> TaskSummary:
+        self._managed.fail_after_terminal_persistence_error()
+        self._managed.set_phase("failed")
+        return self._managed.summary()
 
     def create_session_collector(
         self,
@@ -170,13 +208,31 @@ class _TaskRuntimeContext:
         collector: object,
         cancellation_token: ExplorationCancellationToken,
     ) -> ExplorationRunner:
+        if type(collector) is SnapshotCollectorAdapter:
+            return ExplorationRunner(
+                policy=policy,
+                budget=budget,
+                collector=cast(SnapshotCollectorPort, collector),
+                cancellation_token=cancellation_token,
+                evidence_sink=self._evidence_sink,
+            )
         return self._managed._with_task(
             lambda task: ExplorationRunner(
                 policy=policy,
                 budget=budget,
                 collector=cast(SnapshotCollectorPort, collector),
+                interaction_candidate_extractor=extract_readonly_interaction_candidates,
+                interaction_executor=cast(
+                    SessionSnapshotCollectorAdapter,
+                    collector,
+                ).execute_readonly_interaction,
+                interaction_snapshot_collector=cast(
+                    SessionSnapshotCollectorAdapter,
+                    collector,
+                ).collect_current,
                 task=task,
                 cancellation_token=cancellation_token,
+                evidence_sink=self._evidence_sink,
             )
         )
 
@@ -191,16 +247,40 @@ class ExplorationTaskService:
         runtime_factory: RuntimeFactory,
         runner_factory: RunnerFactory,
         collector_factory: CollectorFactory | None = None,
+        terminal_summary_reader: TerminalSummaryReader | None = None,
+        terminal_summary_list_reader: TerminalSummaryListReader | None = None,
+        terminal_knowledge_source_reader: TerminalKnowledgeSourceReader | None = None,
+        terminal_projection_writer: TerminalProjectionWriter | None = None,
+        task_summary_writer: TaskSummaryWriter | None = None,
+        terminal_pages_reader: TerminalPagesReader | None = None,
+        terminal_page_detail_reader: TerminalPageDetailReader | None = None,
+        terminal_export_reader: TerminalExportReader | None = None,
+        terminal_workflow_reader: TerminalWorkflowReader | None = None,
     ) -> None:
         self._registry = registry
         self._runtime_factory = runtime_factory
         self._runner_factory = runner_factory
         self._collector_factory = collector_factory or _empty_collector
+        self._terminal_summary_reader = terminal_summary_reader
+        self._terminal_summary_list_reader = terminal_summary_list_reader
+        self._terminal_knowledge_source_reader = terminal_knowledge_source_reader
+        self._terminal_projection_writer = terminal_projection_writer
+        self._task_summary_writer = task_summary_writer
+        self._terminal_pages_reader = terminal_pages_reader
+        self._terminal_page_detail_reader = terminal_page_detail_reader
+        self._terminal_export_reader = terminal_export_reader
+        self._terminal_workflow_reader = terminal_workflow_reader
         self._lock = RLock()
         self._executions: dict[str, _TaskExecution] = {}
         self._next_task_number = 1
 
-    def create(self, command: CreateExplorationTaskCommand) -> TaskSummary:
+    def create(
+        self,
+        command: CreateExplorationTaskCommand,
+        *,
+        evidence_sink: ExplorationEvidenceSink | None = None,
+        on_terminal: Callable[[TaskSummary], None] | None = None,
+    ) -> TaskSummary:
         """Register a task and start it or pause it for explicit human login."""
         policy = NavigationPolicy(
             allowed_origins=list(command.allowed_origins),
@@ -216,16 +296,28 @@ class ExplorationTaskService:
                 redaction_count=0,
             )
         )
-        context = _TaskRuntimeContext(managed)
+        task_evidence = TaskEvidenceCollector(downstream=evidence_sink)
+        context = _TaskRuntimeContext(managed, evidence_sink=task_evidence)
         execution = _TaskExecution(
             command=command,
             policy=policy,
             cancellation_token=ExplorationCancellationToken(),
             context=context,
+            evidence_collector=task_evidence,
+            on_terminal=on_terminal,
         )
         with self._lock:
             self._executions[task.task_id] = execution
         task_id = task.task_id
+        writer = self._task_summary_writer
+        if writer is not None:
+            try:
+                writer(managed.summary())
+            except Exception as error:
+                with self._lock:
+                    self._executions.pop(task_id, None)
+                self._registry.remove(task_id)
+                raise TaskServiceError("Task could not be created.") from error
 
         def release_runtime() -> None:
             self._release_runtime(task_id)
@@ -246,9 +338,54 @@ class ExplorationTaskService:
         return managed.summary()
 
     def get(self, task_id: str) -> TaskSummary | None:
-        """Return a safe task summary, or ``None`` after unknown/restarted tasks."""
+        """Read a live task first, then one persisted terminal safe projection."""
         managed = self._registry.get(task_id)
-        return managed.summary() if managed is not None else None
+        if managed is not None:
+            return managed.summary()
+        reader = self._terminal_summary_reader
+        return reader(task_id) if reader is not None else None
+
+    def list_summaries(self) -> list[TaskSummary]:
+        """List live tasks plus persisted terminal summaries missing from this process."""
+        summaries = {summary.task_id: summary for summary in self._registry.list_summaries()}
+        reader = self._terminal_summary_list_reader
+        if reader is not None:
+            for summary in reader():
+                summaries.setdefault(summary.task_id, summary)
+        return [summaries[task_id] for task_id in sorted(summaries)]
+
+    def knowledge_source(self, task_id: str) -> TaskKnowledgeSource | None:
+        """Project one terminal task into bounded, already-redacted evidence."""
+        summary = self.get(task_id)
+        execution = self._execution_for(task_id)
+        if summary is None or str(summary.state) not in _TERMINAL_STATES:
+            return None
+        if execution is None:
+            reader = self._terminal_knowledge_source_reader
+            return reader(task_id) if reader is not None else None
+        evidence_export = execution.evidence_collector.export(
+            task_id=summary.task_id,
+            state=summary.state,
+            result=summary.result,
+        )
+        pages = [
+            page
+            for page_view in execution.evidence_collector.pages()
+            if (page := execution.evidence_collector.page_detail(page_view.page_id)) is not None
+        ]
+        return TaskKnowledgeSource(
+            source_id=summary.task_id,
+            state=cast(
+                Literal["completed", "partial", "failed", "cancelled"],
+                str(summary.state),
+            ),
+            pages=pages,
+            reason_codes=list(evidence_export.reason_codes),
+            workflow=execution.evidence_collector.workflow(
+                task_id=summary.task_id,
+                state=summary.state,
+            ),
+        )
 
     def events(self, task_id: str) -> list[TaskEventView] | None:
         """Return only allowlisted audit event fields."""
@@ -285,6 +422,7 @@ class ExplorationTaskService:
                 return current_summary
             raise TaskServiceError("Task cannot be cancelled.")
         execution = self._execution_for(task_id)
+        runtime = execution.runtime if execution is not None else None
         if execution is not None:
             execution.cancellation_token.cancel()
             execution.confirmation_requested.set()
@@ -293,7 +431,7 @@ class ExplorationTaskService:
         except ExplorationTaskError:
             raise TaskServiceError("Task cannot be cancelled.") from None
         managed.set_phase("cancelled")
-        if execution is not None and execution.runtime is not None:
+        if execution is not None and runtime is not None:
             execution.runtime_closed.wait(timeout=5)
         return managed.summary()
 
@@ -301,6 +439,51 @@ class ExplorationTaskService:
         """Return only the stored redacted result summary."""
         summary = self.get(task_id)
         return summary.result if summary is not None else None
+
+    def pages(self, task_id: str) -> list[TaskPageView] | None:
+        """Return process-local page indexes without Snapshot or runtime handles."""
+        execution = self._execution_for(task_id)
+        if execution is not None:
+            return execution.evidence_collector.pages()
+        reader = self._terminal_pages_reader
+        return reader(task_id) if reader is not None else None
+
+    def page_detail(self, task_id: str, page_id: str) -> PageEvidence | None:
+        """Return one already-redacted page evidence record."""
+        execution = self._execution_for(task_id)
+        if execution is not None:
+            return execution.evidence_collector.page_detail(page_id)
+        reader = self._terminal_page_detail_reader
+        return reader(task_id, page_id) if reader is not None else None
+
+    def export(self, task_id: str) -> ExplorationEvidenceExport | None:
+        """Build a schema-valid, process-local export from bounded projections."""
+        summary = self.get(task_id)
+        execution = self._execution_for(task_id)
+        if summary is None:
+            return None
+        if execution is None:
+            reader = self._terminal_export_reader
+            return reader(task_id) if reader is not None else None
+        return execution.evidence_collector.export(
+            task_id=summary.task_id,
+            state=summary.state,
+            result=summary.result,
+        )
+
+    def workflow(self, task_id: str) -> TaskWorkflowExport | None:
+        """Return a terminal task's process-local readonly workflow projection."""
+        summary = self.get(task_id)
+        execution = self._execution_for(task_id)
+        if summary is None or str(summary.state) not in _TERMINAL_STATES:
+            return None
+        if execution is None:
+            reader = self._terminal_workflow_reader
+            return reader(task_id) if reader is not None else None
+        return execution.evidence_collector.workflow(
+            task_id=summary.task_id,
+            state=summary.state,
+        )
 
     def _start_login_task(
         self,
@@ -341,6 +524,7 @@ class ExplorationTaskService:
                 except Exception:
                     pass
             execution.runtime_closed.set()
+            self._notify_terminal(execution, managed.summary())
             return
         finally:
             execution.startup_ready.set()
@@ -362,6 +546,7 @@ class ExplorationTaskService:
                 except Exception:
                     pass
             execution.runtime_closed.set()
+            self._notify_terminal(execution, managed.summary())
 
     def _verify_login_in_owner_thread(
         self,
@@ -446,13 +631,19 @@ class ExplorationTaskService:
             self._sync_phase(managed)
             if managed.summary().state in _TERMINAL_STATES:
                 self._release_runtime(managed.task_id)
+                if execution.command.authentication_plan is None:
+                    self._notify_terminal(execution, managed.summary())
 
     def _record_run_result(self, managed: ManagedTask, result: object) -> None:
         visits = getattr(result, "visits", None)
-        visit_count = len(visits) if isinstance(visits, Sequence) else getattr(
-            result,
-            "visit_count",
-            0,
+        visit_count = (
+            len(visits)
+            if isinstance(visits, Sequence)
+            else getattr(
+                result,
+                "visit_count",
+                0,
+            )
         )
         if not isinstance(visit_count, int) or visit_count < 0:
             visit_count = 0
@@ -533,7 +724,31 @@ class ExplorationTaskService:
     def _release_runtime(self, task_id: str) -> None:
         self._registry.remove_runtime(task_id)
         with self._lock:
-            self._executions.pop(task_id, None)
+            execution = self._executions.get(task_id)
+            if execution is not None:
+                execution.runtime = None
+
+    def _notify_terminal(
+        self,
+        execution: _TaskExecution,
+        summary: TaskSummary,
+    ) -> None:
+        if execution.terminal_notified.is_set():
+            return
+        execution.terminal_notified.set()
+        writer = self._terminal_projection_writer
+        if writer is not None:
+            try:
+                writer(summary, execution.evidence_collector)
+            except Exception:
+                summary = execution.context.fail_after_terminal_persistence_error()
+        callback = execution.on_terminal
+        if callback is None:
+            return
+        try:
+            callback(summary)
+        except Exception:
+            pass
 
 
 _TERMINAL_STATES = frozenset({"completed", "partial", "failed", "cancelled"})

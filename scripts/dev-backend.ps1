@@ -12,7 +12,7 @@ $env:PYTHONPATH = $BackendSrc
 
 Push-Location (Join-Path $ProjectRoot 'backend')
 try {
-    & $Python -m uvicorn ai_ui_explorer.main:app --reload --host 127.0.0.1 --port 8000
+    & $Python -m uvicorn ai_ui_explorer.main:create_app --factory --reload --host 127.0.0.1 --port 8000
 }
 finally {
     Pop-Location

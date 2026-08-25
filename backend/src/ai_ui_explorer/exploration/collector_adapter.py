@@ -1,5 +1,9 @@
 """Adapters that let controlled exploration reuse Sprint 1 snapshot collection."""
 
+from ai_ui_explorer.exploration.interactions import (
+    ReadonlyInteractionCandidate,
+    ReadonlyInteractionExecution,
+)
 from ai_ui_explorer.exploration.task import ExplorationTask
 from ai_ui_explorer.snapshot.browser import PlaywrightBrowserSession
 from ai_ui_explorer.snapshot.collector import CollectionFailedError, SnapshotCollector
@@ -44,6 +48,22 @@ class SessionSnapshotCollectorAdapter(SnapshotCollectorAdapter):
         self._session = session
         self._task = task
         super().__init__(collector=bound_collector, limits=limits)
+
+    def execute_readonly_interaction(
+        self,
+        candidate: ReadonlyInteractionCandidate,
+    ) -> ReadonlyInteractionExecution:
+        """Execute one pre-gated candidate on this task's bound session."""
+        return self._session.execute_readonly_interaction(candidate)
+
+    def collect_current(self) -> SnapshotDocument:
+        """Re-collect the current bound page without resetting its UI state."""
+        try:
+            return self._collector.collect_current(self._session.current_url, self._limits)
+        except CollectionFailedError:
+            raise CollectionFailedError(
+                "Controlled exploration current-page collection failed."
+            ) from None
 
 
 def _session_collector_matches_binding(

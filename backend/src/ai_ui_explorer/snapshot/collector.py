@@ -89,6 +89,20 @@ class SnapshotCollector:
 
     def collect(self, url: str, limits: SnapshotLimits) -> SnapshotDocument:
         """Return a validated snapshot after redacting every persisted string value."""
+        return self._collect(url=url, limits=limits, current_page=False)
+
+    def collect_current(self, url: str, limits: SnapshotLimits) -> SnapshotDocument:
+        """Snapshot a task-bound current page without triggering navigation."""
+        return self._collect(url=url, limits=limits, current_page=True)
+
+    def _collect(
+        self,
+        *,
+        url: str,
+        limits: SnapshotLimits,
+        current_page: bool,
+    ) -> SnapshotDocument:
+        """Build one redacted snapshot from either a URL or the current page."""
         started_at = datetime.now(UTC)
         started_tick = self._monotonic_clock()
         deadline = started_tick + (limits.total_timeout_ms / 1_000)
@@ -96,7 +110,10 @@ class SnapshotCollector:
             raise CollectionFailedError("Collection deadline was reached before navigation.")
 
         try:
-            raw_page = self._source.collect(url, limits)
+            if current_page:
+                raw_page = self._source.collect_current(limits)  # type: ignore[attr-defined]
+            else:
+                raw_page = self._source.collect(url, limits)
         except BrowserUnavailableError as exc:
             raise CollectionFailedError("Browser observation source is unavailable.") from exc
         except Exception as exc:
